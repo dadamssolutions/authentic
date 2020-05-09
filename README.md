@@ -1,0 +1,3 @@
+[![Codeship Status for dadamssolutions/authentic8](https://app.codeship.com/projects/6852b770-73c2-0138-d3cd-36d043ec6171/status?branch=master)](https://app.codeship.com/projects/395789) [![codecov](https://codecov.io/gh/dadamssolutions/authentic8/branch/master/graph/badge.svg)](https://codecov.io/gh/dadamssolutions/authentic8) [![Maintainability](https://api.codeclimate.com/v1/badges/f45cc437c6b377d7d150/maintainability)](https://codeclimate.com/github/dadamssolutions/authentic8/maintainability) [![Go Report Card](https://goreportcard.com/badge/github.com/dadamssolutions/authentic8)](https://goreportcard.com/report/github.com/dadamssolutions/authentic8)
+# authentic8
+An all-in-one authentication and session handler for golang applications
