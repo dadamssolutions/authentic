@@ -3,9 +3,9 @@
     - name: Code Climate Before
       service: coverage
       command: /go/cc-reporter before-build
-    # - name: Gosec
-    #   service: coverage
-    #   command: gosec ./...
+    - name: Gosec
+      service: coverage
+      command: gosec ./...
     - name: Go vet
       service: coverage
       command: go vet ./...

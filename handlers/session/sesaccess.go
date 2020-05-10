@@ -108,7 +108,9 @@ func (s sesDataAccess) createTable(db *sql.DB) error {
 	// Create the table we need in the database
 	_, err = tx.Exec(fmt.Sprintf(tableCreation, pq.QuoteIdentifier(s.tableName)))
 	if err != nil {
-		tx.Rollback()
+		if err := tx.Rollback(); err != nil {
+			panic(err)
+		}
 		return databaseTableCreationError(s.tableName)
 	}
 	log.Println(s.tableName + " table created")
@@ -129,18 +131,23 @@ func (s sesDataAccess) cleanUpOldSessions(db *sql.DB, c <-chan time.Time, sessio
 		// Also clean up old expired persistent sessions.
 		rows, err := tx.Query(fmt.Sprintf(cleanUpOldSessions, s.tableName, sessionTimeout, persistentSessionTimeout))
 		if err != nil {
-			tx.Rollback()
+			if err := tx.Rollback(); err != nil {
+				panic(err)
+			}
 			log.Printf("We have stopped cleaning up old %v\n", s.tableName)
 			log.Println(err)
 			return
 		}
 		defer rows.Close()
+		var selectorDeleted string
 		for rows.Next() {
-			selectorDeleted := ""
-			rows.Scan(&selectorDeleted)
+			err = rows.Scan(&selectorDeleted) // #nosec
 			log.Printf("Deleted %v with selector %v\n", s.tableName, selectorDeleted)
 		}
-		tx.Commit()
+		err = tx.Commit()
+		if err != nil {
+			log.Printf("Could not commit delete %v transaction", s.tableName)
+		}
 	}
 }
 
@@ -153,7 +160,9 @@ func (s sesDataAccess) dropTable(db *sql.DB) error {
 	// Drop the sessions table
 	_, err = tx.Exec(fmt.Sprintf(dropTable, pq.QuoteIdentifier(s.tableName)))
 	if err != nil {
-		tx.Rollback()
+		if err := tx.Rollback(); err != nil {
+			panic(err)
+		}
 		return databaseTableCreationError(s.tableName)
 	}
 	return tx.Commit()
@@ -234,7 +243,10 @@ func (s sesDataAccess) destroySession(tx *sql.Tx, ses *sessions.Session) {
 	queryString := fmt.Sprintf(deleteSession,
 		pq.QuoteIdentifier(s.tableName),
 		pq.QuoteLiteral(ses.SelectorID()))
-	tx.Exec(queryString)
+	_, err := tx.Exec(queryString)
+	if err != nil {
+		log.Printf("Could not delete %v: %v", s.tableName, err)
+	}
 	ses.Destroy()
 }
 
@@ -273,7 +285,10 @@ func (s sesDataAccess) validateSession(tx *sql.Tx, ses *sessions.Session, maxLif
 // logUserIntoSession takes care of logging a user into a session.
 // This includes things like changing the encrypted username data.
 func (s sesDataAccess) logUserIntoSession(tx *sql.Tx, ses *sessions.Session, username string, maxLifetime time.Duration) {
-	ses.LogUserIn(username, s.encrypt(username, ses.SelectorID()))
+	err := ses.LogUserIn(username, s.encrypt(username, ses.SelectorID()))
+	if err != nil {
+		log.Printf("Could not log user into session: %v", err)
+	}
 	s.updateSession(tx, ses, maxLifetime)
 }
 

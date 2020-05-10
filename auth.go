@@ -35,7 +35,9 @@ func createUsersTable(db *sql.DB, tableName string) error {
 	}
 	_, err = tx.Exec(fmt.Sprintf(createUsersTableSQL, pq.QuoteIdentifier(tableName)))
 	if err != nil {
-		tx.Rollback()
+		if err := tx.Rollback(); err != nil {
+			panic(err)
+		}
 		return err
 	}
 	return tx.Commit()
@@ -176,7 +178,10 @@ func (a *HTTPAuth) AttachSessionCookie() adaptd.Adapter {
 				err := ErrorFromContext(r.Context())
 				if err != nil {
 					ses.AddError(err.Error())
-					a.sesHandler.UpdateSessionIfValid(tx, ses)
+					if a.sesHandler.UpdateSessionIfValid(tx, ses) != nil {
+						log.Print("Could not put error on session, destroying session")
+						a.sesHandler.DestroySession(tx, ses)
+					}
 				}
 				err = a.sesHandler.AttachCookie(tx, w, ses)
 				if err == nil {

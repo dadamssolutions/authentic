@@ -64,9 +64,13 @@ func (e *Sender) SendMessage(tmpl *template.Template, subject string, data map[s
 		data["Greeting"] = r.Greeting()
 		data["Email"] = r.GetEmail()
 		// Execute the template and send the message
-		tmpl.Execute(buf, data)
+		err := tmpl.Execute(buf, data)
+		if err != nil {
+			log.Printf("Error executing template: %v", err)
+			return err
+		}
 		log.Printf("Sending message to %v\n", r.GetEmail())
-		err := e.SendMail(e.hostname+":"+e.port, e.auth, e.username, []string{r.GetEmail()}, buf.Bytes())
+		err = e.SendMail(e.hostname+":"+e.port, e.auth, e.username, []string{r.GetEmail()}, buf.Bytes())
 
 		if err != nil {
 			log.Printf("Error sending message to %v\n", r.GetEmail())
@@ -96,7 +100,7 @@ func SendMailSSL(addr string, auth smtp.Auth, username string, recpts []string, 
 	// TLS config
 	host, _, _ := net.SplitHostPort(addr)
 	tlsconfig := &tls.Config{
-		InsecureSkipVerify: true,
+		InsecureSkipVerify: false,
 		ServerName:         host,
 	}
 

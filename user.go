@@ -22,7 +22,7 @@ const (
 	getUserInfoSQL          = "SELECT username, fname, lname, email, role, validated FROM %s WHERE %s = %s;"
 	getUserPasswordHashSQL  = "SELECT pass_hash FROM %v WHERE username = %s;"
 	validateUserSQL         = "UPDATE %v SET validated = true WHERE username = %s;"
-	updateUserPasswordSQL   = "UPDATE %v SET (pass_hash, validated) = (%s, true) WHERE username = %s;"
+	updateUserPasswordSQL   = "UPDATE %v SET (pass_hash, validated) = (%s, true) WHERE username = %s;" // #nosec
 	updateUserLastAccessSQL = "UPDATE %v SET last_access = %s WHERE username = %s;"
 	getUserLastAccessSQL    = "SELECT last_access FROM %s WHERE username = %s;"
 	deleteTestTableSQL      = "DROP TABLE %s;"

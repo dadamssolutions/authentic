@@ -88,7 +88,9 @@ func PutTxOnContext(db *sql.DB) adaptd.Adapter {
 					}
 					w.WriteHeader(http.StatusInternalServerError)
 					log.Printf("Transaction is being rolled back: %s", err.Error())
-					tx.Rollback()
+					if err := tx.Rollback(); err != nil {
+						panic(err)
+					}
 				}
 			}()
 
