@@ -11,7 +11,7 @@ import (
 	"net"
 	"net/smtp"
 
-	"github.com/dadamssolutions/authentic8/handlers/email/smtpauth"
+	"github.com/dadamssolutions/authentic/handlers/email/smtpauth"
 )
 
 // Recipient interface represents someone who can receive an email message.

@@ -1,4 +1,4 @@
-package authentic8
+package authentic
 
 import (
 	"bytes"
@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dadamssolutions/authentic8/handlers/session"
+	"github.com/dadamssolutions/authentic/handlers/session"
 )
 
 func TestPasswordResetNoQuery(t *testing.T) {

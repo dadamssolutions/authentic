@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dadamssolutions/authentic8/handlers/session"
+	"github.com/dadamssolutions/authentic/handlers/session"
 )
 
 const (

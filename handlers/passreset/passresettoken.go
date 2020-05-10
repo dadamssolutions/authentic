@@ -1,7 +1,7 @@
 package passreset
 
 import (
-	"github.com/dadamssolutions/authentic8/handlers/session/sessions"
+	"github.com/dadamssolutions/authentic/handlers/session/sessions"
 )
 
 // A Token represents a token used to reset passswords

@@ -10,11 +10,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dadamssolutions/authentic8/handlers/session"
+	"github.com/dadamssolutions/authentic/handlers/session"
 )
 
 var csrfHand *Handler
-var db, _ = sql.Open("postgres", "postgres://authentic8:authentic8@db:5432/authentic8_csrfs?sslmode=disable")
+var db, _ = sql.Open("postgres", "postgres://authentic:authentic@db:5432/authentic_csrfs?sslmode=disable")
 
 func TestTokenGeneration(t *testing.T) {
 	w := httptest.NewRecorder()

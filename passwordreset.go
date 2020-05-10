@@ -1,4 +1,4 @@
-package authentic8
+package authentic
 
 import (
 	"encoding/base64"
@@ -12,8 +12,8 @@ import (
 	"strings"
 
 	"github.com/dadamssolutions/adaptd"
-	"github.com/dadamssolutions/authentic8/handlers/passreset"
-	"github.com/dadamssolutions/authentic8/handlers/session"
+	"github.com/dadamssolutions/authentic/handlers/passreset"
+	"github.com/dadamssolutions/authentic/handlers/session"
 )
 
 // PasswordResetRequestAdapter handles the GET and POST requests for requesting password reset.

@@ -1,4 +1,4 @@
-package authentic8
+package authentic
 
 import (
 	"fmt"
@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/dadamssolutions/adaptd"
-	"github.com/dadamssolutions/authentic8/handlers/session"
+	"github.com/dadamssolutions/authentic/handlers/session"
 )
 
 // SignUpAdapter handles the sign up GET and POST requests.

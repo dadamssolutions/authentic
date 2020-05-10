@@ -1,4 +1,4 @@
-package authentic8
+package authentic
 
 import (
 	"net/http"

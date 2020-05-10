@@ -1,4 +1,4 @@
-package authentic8
+package authentic
 
 import (
 	"bytes"
@@ -18,8 +18,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dadamssolutions/authentic8/handlers/email"
-	"github.com/dadamssolutions/authentic8/handlers/session"
+	"github.com/dadamssolutions/authentic/handlers/email"
+	"github.com/dadamssolutions/authentic/handlers/session"
 	"github.com/lib/pq"
 )
 
@@ -411,7 +411,7 @@ func TestMain(m *testing.M) {
 	log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
 	var err error
 	triesLeft := 5
-	db, err = sql.Open("postgres", "postgres://authentic8:authentic8@db:5432/authentic8?sslmode=disable")
+	db, err = sql.Open("postgres", "postgres://authentic:authentic@db:5432/authentic?sslmode=disable")
 
 	// Wait for the database to be ready.
 	for triesLeft > 0 {

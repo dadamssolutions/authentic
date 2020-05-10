@@ -16,7 +16,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/dadamssolutions/authentic8/handlers/session/sessions"
+	"github.com/dadamssolutions/authentic/handlers/session/sessions"
 	"github.com/lib/pq"
 )
 

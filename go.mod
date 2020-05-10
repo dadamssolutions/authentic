@@ -1,4 +1,4 @@
-module github.com/dadamssolutions/authentic8
+module github.com/dadamssolutions/authentic
 
 go 1.13
 

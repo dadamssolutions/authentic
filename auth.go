@@ -1,11 +1,11 @@
 /*
-Package authentic8 provides a self-contained authentication handler using a Postgresql database backend.
+Package authentic provides a self-contained authentication handler using a Postgresql database backend.
 
 The handler will create all the necessary tables it needs or the user can provide a tableName that exists and has the appropriate columns for the application. For example, the table where the user information is stored (by default called 'users') should have at least username (PRIMARY KEY), fname, lname, email, role (int), validated (bool), passhash (char(80)).
 
-authentic8 also "handles" all session information and csrf token generation and validation. That is, this package is designed to be an automatic, all-in-one solution. The user should not have to worry about the logic of authentication and validation, but should know who is logged in, if any.
+authentic also "handles" all session information and csrf token generation and validation. That is, this package is designed to be an automatic, all-in-one solution. The user should not have to worry about the logic of authentication and validation, but should know who is logged in, if any.
 */
-package authentic8
+package authentic
 
 import (
 	"database/sql"
@@ -18,11 +18,11 @@ import (
 	"time"
 
 	"github.com/dadamssolutions/adaptd"
-	"github.com/dadamssolutions/authentic8/handlers/csrf"
-	"github.com/dadamssolutions/authentic8/handlers/email"
-	"github.com/dadamssolutions/authentic8/handlers/passreset"
-	"github.com/dadamssolutions/authentic8/handlers/session"
-	"github.com/dadamssolutions/authentic8/handlers/session/sessions"
+	"github.com/dadamssolutions/authentic/handlers/csrf"
+	"github.com/dadamssolutions/authentic/handlers/email"
+	"github.com/dadamssolutions/authentic/handlers/passreset"
+	"github.com/dadamssolutions/authentic/handlers/session"
+	"github.com/dadamssolutions/authentic/handlers/session/sessions"
 	"github.com/lib/pq"
 	_ "github.com/lib/pq" // Database driver
 	"golang.org/x/crypto/bcrypt"

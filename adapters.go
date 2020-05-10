@@ -1,4 +1,4 @@
-package authentic8
+package authentic
 
 import (
 	"database/sql"
@@ -8,7 +8,7 @@ import (
 	"net/http"
 
 	"github.com/dadamssolutions/adaptd"
-	"github.com/dadamssolutions/authentic8/handlers/session"
+	"github.com/dadamssolutions/authentic/handlers/session"
 )
 
 // RedirectIfErrorOnContext checks for an error on the Request's context.

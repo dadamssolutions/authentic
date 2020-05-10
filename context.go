@@ -1,9 +1,9 @@
-package authentic8
+package authentic
 
 import (
 	"context"
 
-	"github.com/dadamssolutions/authentic8/handlers/session/sessions"
+	"github.com/dadamssolutions/authentic/handlers/session/sessions"
 )
 
 type key int

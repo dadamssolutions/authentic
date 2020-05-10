@@ -3,12 +3,21 @@
     - name: Code Climate Before
       service: coverage
       command: /go/cc-reporter before-build
+    # - name: Gosec
+    #   service: coverage
+    #   command: gosec ./...
+    - name: Go vet
+      service: coverage
+      command: go vet ./...
+    - name: Golint
+      service: coverage
+      command: golint ./...
     - name: Test
       service: app
       command: go test ./... -race -coverprofile=c.out -covermode=atomic
     - name: Code Climate After
       service: coverage
-      command: /go/cc-reporter after-build --prefix github.com/dadamssolutions/authentic8
+      command: /go/cc-reporter after-build --prefix github.com/dadamssolutions/authentic
     - name: Codecov
       service: coverage
       command: /go/codecov.sh -f c.out

@@ -8,17 +8,17 @@ services:
             args:
                 SQL_FILE: multidatabase.sh
         environment:
-            - POSTGRES_USER=authentic8
-            - POSTGRES_DB=authentic8
-            - POSTGRES_PASSWORD=authentic8
-            - POSTGRES_MULTIPLE_DATABASES=authentic8_csrfs,authentic8_passreset,authentic8_session
+            - POSTGRES_USER=authentic
+            - POSTGRES_DB=authentic
+            - POSTGRES_PASSWORD=authentic
+            - POSTGRES_MULTIPLE_DATABASES=authentic_csrfs,authentic_passreset,authentic_session
 
     app:
         image: golang
         volumes:
-            - ./:/go/src/authentic8/
+            - ./:/go/src/authentic/
         command: go test ./... -covermode=atomic -coverprofile=coverage.txt -race
-        working_dir: /go/src/authentic8
+        working_dir: /go/src/authentic
         environment:
             WAIT_HOSTS: db:5432
             WAIT_BEFORE_HOSTS: 5

@@ -10,12 +10,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dadamssolutions/authentic8/handlers/session/sessions"
+	"github.com/dadamssolutions/authentic/handlers/session/sessions"
 	_ "github.com/lib/pq"
 )
 
 var timeout = time.Minute
-var db, err = sql.Open("postgres", "postgres://authentic8:authentic8@db:5432/authentic8_session?sslmode=disable")
+var db, err = sql.Open("postgres", "postgres://authentic:authentic@db:5432/authentic_session?sslmode=disable")
 var da sesDataAccess
 var sh *Handler
 

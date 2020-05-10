@@ -26,7 +26,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dadamssolutions/authentic8/handlers/session/sessions"
+	"github.com/dadamssolutions/authentic/handlers/session/sessions"
 )
 
 // These are made constants because the database should be cleared and updated if they change.

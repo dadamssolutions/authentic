@@ -1,4 +1,4 @@
-package authentic8
+package authentic
 
 import (
 	"log"
@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dadamssolutions/authentic8/handlers/session"
+	"github.com/dadamssolutions/authentic/handlers/session"
 )
 
 func TestUserLogInHandlerNotLoggedIn(t *testing.T) {
