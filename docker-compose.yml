@@ -17,7 +17,7 @@ services:
         image: golang
         volumes:
             - ./:/go/src/authentic/
-        command: go test ./... -covermode=atomic -coverprofile=coverage.txt -race
+        command: go test ./... -covermode=atomic -coverprofile=c.out -race
         working_dir: /go/src/authentic
         environment:
             WAIT_HOSTS: db:5432
