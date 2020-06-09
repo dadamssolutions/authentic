@@ -105,17 +105,17 @@ func PutTxOnContext(db *sql.DB) adaptd.Adapter {
 
 func adaptAndAbsorbError(h http.Handler, adapters ...adaptd.Adapter) http.Handler {
 	// Attach adapters in reverse order because that is what should be implied by the ordering of the caller.
-	// They way the middleware will work is the first adapter applied will be the last one to get called.
-	// However, if there is an error on the context, we call h immediately.
+	// The way the middleware will work is the first adapter applied will be the last one to get called.
+	// However, if there is an error on the context, then h is called immediately.
 	for i := len(adapters) - 1; i >= 0; i-- {
-		h = adapters[i](func(f http.HandlerFunc) http.Handler {
+		h = adapters[i](func(f http.Handler) http.Handler {
 			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				f(w, r)
 				if ErrorFromContext(r.Context()) != nil {
 					return
 				}
+				f.ServeHTTP(w, r)
 			})
-		}(h.ServeHTTP))
+		}(h))
 	}
 	return h
 }

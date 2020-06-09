@@ -1,6 +1,7 @@
 package authentic
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -51,6 +52,53 @@ func TestTxPanic(t *testing.T) {
 
 	if err != nil || resp.StatusCode != http.StatusInternalServerError || mock.ExpectationsWereMet() != nil {
 		t.Errorf("If the handler panics, we should get an internal server error")
+	}
+}
+
+func TestRedirectWithErrorOnContext(t *testing.T) {
+	redirectCalled := false
+	g := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		redirectCalled = true
+	})
+	redirectHandler := RedirectIfErrorOnContext(g)(testHand)
+	r, _ := http.NewRequest("GET", "/", nil)
+	redirectHandler.ServeHTTP(&httptest.ResponseRecorder{}, r)
+	if redirectCalled {
+		t.Error("Redirect should not be called when there is no error on the context")
+	}
+
+	redirectHandler.ServeHTTP(&httptest.ResponseRecorder{}, r.WithContext(NewErrorContext(r.Context(), fmt.Errorf("New error"))))
+
+	if !redirectCalled {
+		t.Error("Redirect should be called when an error is on the context")
+	}
+}
+
+func TestAdaptAndAbsorbError(t *testing.T) {
+	num := 0
+	g := func(h http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			num++
+			h.ServeHTTP(w, r)
+		})
+	}
+	adaptAndAbsorbError(testHand, g).ServeHTTP(&httptest.ResponseRecorder{}, httptest.NewRequest("GET", "/", nil))
+	if num != 1 {
+		t.Errorf("Adapter not called correct number of time: %v", num)
+	}
+
+	adaptAndAbsorbError(testHand, g, g, g).ServeHTTP(&httptest.ResponseRecorder{}, httptest.NewRequest("GET", "/", nil))
+	if num != 4 {
+		t.Errorf("Adapter not called correct number of time: %v", num)
+	}
+	eg := func(h http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			h.ServeHTTP(w, r.WithContext(NewErrorContext(r.Context(), fmt.Errorf("New error"))))
+		})
+	}
+	adaptAndAbsorbError(testHand, g, eg, g, g).ServeHTTP(&httptest.ResponseRecorder{}, httptest.NewRequest("GET", "/", nil))
+	if num != 5 {
+		t.Errorf("Adapter not called correct number of time: %v", num)
 	}
 }
 

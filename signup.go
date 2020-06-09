@@ -12,7 +12,7 @@ import (
 )
 
 // SignUpAdapter handles the sign up GET and POST requests.
-// If it is determine that the sign up page should be shown, then the handler passed to the Adapter is called.
+// If it is determined that the sign up page should be shown, then the handler passed to the Adapter is called.
 // If the user sign up POST request fails, the handler passed to the adapter is called again,
 // this time with an error on the Request's context.
 //

@@ -24,7 +24,6 @@ import (
 )
 
 var a *HTTPAuth
-var num int
 var testHand testHandler
 var db *sql.DB
 
@@ -35,11 +34,9 @@ func checkRedirect(req *http.Request, via []*http.Request) error {
 type testHandler struct{}
 
 func (t testHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	num++
 	err := ErrorFromContext(r.Context())
 	if err != nil {
 		log.Println(err)
-		num *= 10
 	}
 	w.Write([]byte("Test handler"))
 }
@@ -59,12 +56,12 @@ func deleteTestTables(db *sql.DB, tableName ...string) error {
 	return tx.Commit()
 }
 
-func addTestUserToDatabase(validated bool) error {
+func addTestUserToDatabase(role int, validated bool) error {
 	// Add user to the database for testing
 	pass := strings.Repeat("d", 64)
 	passHash, _ := a.GenerateHashFromPassword([]byte(pass))
 	tx, _ := db.Begin()
-	_, err := tx.Exec(fmt.Sprintf("INSERT INTO %v (username, email, pass_hash, validated) VALUES ('dadams', 'test@gmail.com', '%v', %v);", a.usersTableName, base64.RawURLEncoding.EncodeToString(passHash), validated))
+	_, err := tx.Exec(fmt.Sprintf("INSERT INTO %v (username, email, pass_hash, role, validated) VALUES ('dadams', 'test@gmail.com', '%v', %v, %v);", a.usersTableName, base64.RawURLEncoding.EncodeToString(passHash), role, validated))
 	if err != nil {
 		tx.Rollback()
 		return err
@@ -82,14 +79,13 @@ func removeTestUserFromDatabase() {
 }
 
 func TestUserNotLoggedInHandler(t *testing.T) {
-	num = 0
 	ts := httptest.NewTLSServer(a.MustHaveAdapters(db, a.RedirectIfUserNotAuthenticated())(testHand))
 	defer ts.Close()
 
 	client := ts.Client()
 	client.CheckRedirect = checkRedirect
 	resp, err := client.Get(ts.URL)
-	if err == nil || resp.StatusCode != http.StatusSeeOther || num != 0 || len(resp.Cookies()) == 0 {
+	if err == nil || resp.StatusCode != http.StatusSeeOther || len(resp.Cookies()) == 0 {
 		log.Println(err)
 		log.Println(resp.Status)
 		log.Println(len(resp.Cookies()))
@@ -99,7 +95,6 @@ func TestUserNotLoggedInHandler(t *testing.T) {
 }
 
 func TestUserLoggedInHandler(t *testing.T) {
-	num = 0
 	ts := httptest.NewTLSServer(a.MustHaveAdapters(db, a.RedirectIfUserNotAuthenticated())(testHand))
 	defer ts.Close()
 	client := ts.Client()
@@ -115,7 +110,7 @@ func TestUserLoggedInHandler(t *testing.T) {
 	tx.Commit()
 
 	resp, err := client.Do(req)
-	if err != nil || resp.StatusCode != http.StatusOK || num != 1 {
+	if err != nil || resp.StatusCode != http.StatusOK {
 		log.Printf("Status code: %v with error: %v\n", resp.Status, err)
 		t.Error("Redirected, but user is logged in")
 	}
@@ -128,11 +123,10 @@ func TestUserLoggedInHandler(t *testing.T) {
 }
 
 func TestUserHasRole(t *testing.T) {
-	err := addTestUserToDatabase(true)
+	err := addTestUserToDatabase(Member, true)
 	if err != nil {
 		t.Error(err)
 	}
-	num = 0
 	ts := httptest.NewTLSServer(a.MustHaveAdapters(db, a.RedirectIfNoPermission(0))(testHand))
 	defer ts.Close()
 	client := ts.Client()
@@ -149,7 +143,7 @@ func TestUserHasRole(t *testing.T) {
 	tx.Commit()
 
 	resp, err := client.Do(req)
-	if err != nil || resp.StatusCode != http.StatusOK || num != 1 {
+	if err != nil || resp.StatusCode != http.StatusOK {
 		t.Error("Redirected, but user has permission")
 	}
 	resp.Body.Close()
@@ -164,7 +158,7 @@ func TestUserHasRole(t *testing.T) {
 	tx.Commit()
 
 	resp, err = client.Do(req)
-	if err != nil || resp.StatusCode != http.StatusOK || num != 2 {
+	if err != nil || resp.StatusCode != http.StatusOK {
 		t.Error("Redirected, but user has permission")
 	}
 	resp.Body.Close()
@@ -173,11 +167,10 @@ func TestUserHasRole(t *testing.T) {
 }
 
 func TestUserDoesNotHaveRole(t *testing.T) {
-	err := addTestUserToDatabase(true)
+	err := addTestUserToDatabase(Member, true)
 	if err != nil {
 		t.Error(err)
 	}
-	num = 0
 	ts := httptest.NewTLSServer(a.MustHaveAdapters(db, a.RedirectIfNoPermission(2))(testHand))
 	defer ts.Close()
 	client := ts.Client()
@@ -194,7 +187,7 @@ func TestUserDoesNotHaveRole(t *testing.T) {
 	tx.Commit()
 
 	resp, err := client.Do(req)
-	if err == nil || resp.StatusCode != http.StatusSeeOther || num != 0 {
+	if err == nil || resp.StatusCode != http.StatusSeeOther {
 		t.Error("Not redirected when user does not have permission")
 	}
 	resp.Body.Close()
@@ -209,7 +202,7 @@ func TestUserDoesNotHaveRole(t *testing.T) {
 	tx.Commit()
 
 	resp, err = client.Do(req)
-	if err == nil || resp.StatusCode != http.StatusSeeOther || num != 0 {
+	if err == nil || resp.StatusCode != http.StatusSeeOther {
 		t.Error("Not redirected when user does not have permission")
 	}
 	resp.Body.Close()
@@ -218,7 +211,7 @@ func TestUserDoesNotHaveRole(t *testing.T) {
 }
 
 func TestCurrentUserBadCookie(t *testing.T) {
-	err := addTestUserToDatabase(true)
+	err := addTestUserToDatabase(Member, true)
 	if err != nil {
 		t.Error(err)
 	}
@@ -247,7 +240,7 @@ func TestCurrentUserBadCookie(t *testing.T) {
 }
 
 func TestCurrentUserGoodCookie(t *testing.T) {
-	err := addTestUserToDatabase(true)
+	err := addTestUserToDatabase(Member, true)
 	if err != nil {
 		t.Error(err)
 	}
@@ -269,7 +262,7 @@ func TestCurrentUserGoodCookie(t *testing.T) {
 }
 
 func TestCurrentUserFromContext(t *testing.T) {
-	err := addTestUserToDatabase(true)
+	err := addTestUserToDatabase(Member, true)
 	if err != nil {
 		t.Error(err)
 	}
@@ -301,7 +294,7 @@ func TestCurrentUserFromContext(t *testing.T) {
 }
 
 func TestIsCurrentUser(t *testing.T) {
-	err := addTestUserToDatabase(true)
+	err := addTestUserToDatabase(Member, true)
 	if err != nil {
 		t.Error(err)
 	}
@@ -348,7 +341,7 @@ func TestGetUserNotInDatabasePasswordHash(t *testing.T) {
 }
 
 func TestGetUserInDatabasePasswordHash(t *testing.T) {
-	err := addTestUserToDatabase(true)
+	err := addTestUserToDatabase(Member, true)
 	if err != nil {
 		t.Error(err)
 	}
@@ -366,7 +359,7 @@ func TestGetUserInDatabasePasswordHash(t *testing.T) {
 }
 
 func TestUpdateUserLastAccess(t *testing.T) {
-	err := addTestUserToDatabase(true)
+	err := addTestUserToDatabase(Member, true)
 	if err != nil {
 		t.Error(err)
 	}

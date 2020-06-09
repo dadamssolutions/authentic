@@ -68,7 +68,7 @@ func TestSignUpPost(t *testing.T) {
 }
 
 func TestSignUpPostErrorChecking(t *testing.T) {
-	err := addTestUserToDatabase(true)
+	err := addTestUserToDatabase(Member, true)
 	if err != nil {
 		t.Error(err)
 	}
@@ -100,6 +100,7 @@ func TestSignUpPostErrorChecking(t *testing.T) {
 		req.Header.Set("Content-type", "application/x-www-form-urlencoded")
 		a.csrfHandler.GenerateNewToken(w, req)
 		req.AddCookie(w.Result().Cookies()[0])
+		tx.Commit()
 
 		resp, err := client.Do(req)
 		loc, _ := resp.Location()
@@ -107,14 +108,13 @@ func TestSignUpPostErrorChecking(t *testing.T) {
 			t.Error("Password email sent when it shouldn't have been sent")
 		}
 		resp.Body.Close()
-		tx.Commit()
 	}
 
 	removeTestUserFromDatabase()
 }
 
 func TestUserValidation(t *testing.T) {
-	err := addTestUserToDatabase(false)
+	err := addTestUserToDatabase(Member, false)
 	if err != nil {
 		t.Error(err)
 	}
@@ -145,7 +145,7 @@ func TestUserValidation(t *testing.T) {
 }
 
 func TestUserValidationNoQuery(t *testing.T) {
-	err := addTestUserToDatabase(false)
+	err := addTestUserToDatabase(Member, false)
 	if err != nil {
 		t.Error(err)
 	}
@@ -177,7 +177,7 @@ func TestUserValidationNoQuery(t *testing.T) {
 }
 
 func TestUserValidationBadQuery(t *testing.T) {
-	err := addTestUserToDatabase(false)
+	err := addTestUserToDatabase(Member, false)
 	if err != nil {
 		t.Error(err)
 	}
@@ -209,7 +209,7 @@ func TestUserValidationBadQuery(t *testing.T) {
 }
 
 func TestUserCannotValidateIfLoggedIn(t *testing.T) {
-	err := addTestUserToDatabase(false)
+	err := addTestUserToDatabase(Member, false)
 	if err != nil {
 		t.Error(err)
 	}
@@ -238,7 +238,7 @@ func TestUserCannotValidateIfLoggedIn(t *testing.T) {
 }
 
 func TestUsernameExists(t *testing.T) {
-	err := addTestUserToDatabase(false)
+	err := addTestUserToDatabase(Member, false)
 	if err != nil {
 		t.Error(err)
 	}
@@ -276,12 +276,12 @@ func TestUsernameExists(t *testing.T) {
 }
 
 func TestEmailExists(t *testing.T) {
-	err := addTestUserToDatabase(false)
+	err := addTestUserToDatabase(Member, false)
 	if err != nil {
 		t.Error(err)
 	}
 
-	ts := httptest.NewTLSServer(a.SignUpAdapter()(testHand))
+	ts := httptest.NewTLSServer(a.MustHaveAdapters(db, a.SignUpAdapter())(testHand))
 	defer ts.Close()
 	client := ts.Client()
 	client.CheckRedirect = checkRedirect

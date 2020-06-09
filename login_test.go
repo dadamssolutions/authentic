@@ -12,8 +12,7 @@ import (
 )
 
 func TestUserLogInHandlerNotLoggedIn(t *testing.T) {
-	num = 0
-	err := addTestUserToDatabase(true)
+	err := addTestUserToDatabase(Member, true)
 	if err != nil {
 		t.Error(err)
 	}
@@ -38,11 +37,10 @@ func TestUserLogInHandlerNotLoggedIn(t *testing.T) {
 }
 
 func TestUserLogInHandlerLoggingIn(t *testing.T) {
-	err := addTestUserToDatabase(true)
+	err := addTestUserToDatabase(Member, true)
 	if err != nil {
 		t.Error(err)
 	}
-	num = 0
 	w := httptest.NewRecorder()
 
 	ts := httptest.NewTLSServer(a.MustHaveAdapters(db, a.LoginAdapter())(testHand))
@@ -113,8 +111,8 @@ func TestUserLogInHandlerLoggingIn(t *testing.T) {
 	if err != nil {
 		t.Error("Request redirected in error")
 	}
-	if resp.StatusCode != http.StatusOK || num != 1 {
-		log.Println(resp.StatusCode, num)
+	if resp.StatusCode != http.StatusOK {
+		log.Println(resp.StatusCode)
 		t.Error("Login GET request with no user logged in should not redirect")
 	}
 	resp.Body.Close()
@@ -123,11 +121,10 @@ func TestUserLogInHandlerLoggingIn(t *testing.T) {
 }
 
 func TestUserLogInHandlerBadInfo(t *testing.T) {
-	err := addTestUserToDatabase(true)
+	err := addTestUserToDatabase(Member, true)
 	if err != nil {
 		t.Error(err)
 	}
-	num = 0
 	w := httptest.NewRecorder()
 
 	ts := httptest.NewTLSServer(a.MustHaveAdapters(db, a.LoginAdapter())(testHand))
@@ -186,11 +183,10 @@ func TestUserLogInHandlerBadInfo(t *testing.T) {
 }
 
 func TestUserLogInHandlerPersistent(t *testing.T) {
-	err := addTestUserToDatabase(true)
+	err := addTestUserToDatabase(Member, true)
 	if err != nil {
 		t.Error(err)
 	}
-	num = 0
 	w := httptest.NewRecorder()
 	ts := httptest.NewTLSServer(a.MustHaveAdapters(db, a.LoginAdapter())(testHand))
 	defer ts.Close()
@@ -234,7 +230,7 @@ func TestUserLogInHandlerPersistent(t *testing.T) {
 	if err != nil {
 		t.Error("Request redirected in error")
 	}
-	if resp.StatusCode != http.StatusOK || num != 1 {
+	if resp.StatusCode != http.StatusOK {
 		t.Error("Login GET request with no user logged in should not redirect")
 	}
 
@@ -243,11 +239,10 @@ func TestUserLogInHandlerPersistent(t *testing.T) {
 }
 
 func TestUserLogInHandlerBadPersistent(t *testing.T) {
-	err := addTestUserToDatabase(true)
+	err := addTestUserToDatabase(Member, true)
 	if err != nil {
 		t.Error(err)
 	}
-	num = 0
 	w := httptest.NewRecorder()
 
 	ts := httptest.NewTLSServer(a.MustHaveAdapters(db, a.LoginAdapter())(testHand))
@@ -287,11 +282,10 @@ func TestUserLogInHandlerBadPersistent(t *testing.T) {
 }
 
 func TestUserLogInHandlerNoCSRF(t *testing.T) {
-	err := addTestUserToDatabase(true)
+	err := addTestUserToDatabase(Member, true)
 	if err != nil {
 		t.Error(err)
 	}
-	num = 0
 
 	ts := httptest.NewTLSServer(a.MustHaveAdapters(db, a.LoginAdapter())(testHand))
 	defer ts.Close()
@@ -324,7 +318,7 @@ func TestUserLogInHandlerNoCSRF(t *testing.T) {
 	removeTestUserFromDatabase()
 }
 func TestUserNotValidatedCannotLogIn(t *testing.T) {
-	err := addTestUserToDatabase(false)
+	err := addTestUserToDatabase(Member, false)
 	if err != nil {
 		t.Error(err)
 	}
@@ -387,11 +381,10 @@ func TestUserLogInHandlerRedirecting(t *testing.T) {
 }
 
 func TestUserLogInHandlerFailedLoginKeepsQuery(t *testing.T) {
-	err := addTestUserToDatabase(true)
+	err := addTestUserToDatabase(Member, true)
 	if err != nil {
 		t.Error(err)
 	}
-	num = 0
 	w := httptest.NewRecorder()
 
 	ts := httptest.NewTLSServer(a.MustHaveAdapters(db, a.LoginAdapter())(testHand))
@@ -432,11 +425,10 @@ func TestUserLogInHandlerFailedLoginKeepsQuery(t *testing.T) {
 }
 
 func TestUserLogInHandlerRedirectWithQuery(t *testing.T) {
-	err := addTestUserToDatabase(true)
+	err := addTestUserToDatabase(Member, true)
 	if err != nil {
 		t.Error(err)
 	}
-	num = 0
 	w := httptest.NewRecorder()
 
 	ts := httptest.NewTLSServer(a.MustHaveAdapters(db, a.LoginAdapter())(testHand))

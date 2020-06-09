@@ -8,7 +8,7 @@ import (
 )
 
 func TestUserLogOutHandler(t *testing.T) {
-	err := addTestUserToDatabase(true)
+	err := addTestUserToDatabase(Member, true)
 	if err != nil {
 		t.Error(err)
 	}

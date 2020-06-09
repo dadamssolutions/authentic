@@ -30,7 +30,7 @@ func TestPasswordResetNoQuery(t *testing.T) {
 }
 
 func TestPasswordResetLoggedIn(t *testing.T) {
-	err := addTestUserToDatabase(true)
+	err := addTestUserToDatabase(Member, true)
 	if err != nil {
 		t.Error(err)
 	}
@@ -68,7 +68,7 @@ func TestPasswordResetLoggedIn(t *testing.T) {
 }
 
 func TestPasswordResetValidQuery(t *testing.T) {
-	err := addTestUserToDatabase(true)
+	err := addTestUserToDatabase(Member, true)
 	if err != nil {
 		t.Error(err)
 	}
@@ -101,7 +101,7 @@ func TestPasswordResetValidQuery(t *testing.T) {
 }
 
 func TestPasswordResetForm(t *testing.T) {
-	err := addTestUserToDatabase(true)
+	err := addTestUserToDatabase(Member, true)
 	if err != nil {
 		t.Error(err)
 	}
@@ -149,7 +149,7 @@ func TestPasswordResetForm(t *testing.T) {
 }
 
 func TestPasswordResetNoCSRF(t *testing.T) {
-	err := addTestUserToDatabase(true)
+	err := addTestUserToDatabase(Member, true)
 	if err != nil {
 		t.Error(err)
 	}
@@ -191,7 +191,7 @@ func TestPasswordResetNoCSRF(t *testing.T) {
 }
 
 func TestPasswordResetNoPasswordToken(t *testing.T) {
-	err := addTestUserToDatabase(true)
+	err := addTestUserToDatabase(Member, true)
 	if err != nil {
 		t.Error(err)
 	}
@@ -250,7 +250,7 @@ func TestPasswordResetRequest(t *testing.T) {
 }
 
 func TestSendPasswordResetEmail(t *testing.T) {
-	err := addTestUserToDatabase(true)
+	err := addTestUserToDatabase(Member, true)
 	if err != nil {
 		t.Error(err)
 	}
@@ -282,8 +282,58 @@ func TestSendPasswordResetEmail(t *testing.T) {
 	removeTestUserFromDatabase()
 }
 
+func TestNoPasswordResetEmail(t *testing.T) {
+	err := addTestUserToDatabase(Admin, true)
+	if err != nil {
+		t.Error(err)
+	}
+	w := httptest.NewRecorder()
+
+	ts := httptest.NewTLSServer(a.MustHaveAdapters(db, a.PasswordResetRequestAdapter())(testHand))
+	defer ts.Close()
+	client := ts.Client()
+	client.CheckRedirect = checkRedirect
+
+	form := url.Values{}
+	form.Set("email", "test@gmail.com")
+	form.Set("sendEmail", "false")
+	form.Set("redirect", "/displayResetLink")
+
+	req, _ := http.NewRequest(http.MethodPost, ts.URL, strings.NewReader(form.Encode()))
+	tx, _ := db.Begin()
+	req = req.WithContext(session.NewTxContext(req.Context(), tx))
+	req.Header.Set("Content-type", "application/x-www-form-urlencoded")
+	a.csrfHandler.GenerateNewToken(w, req)
+	req.AddCookie(w.Result().Cookies()[0])
+	ses := a.sesHandler.CreateSession(tx, "dadams", true)
+	req.AddCookie(ses.SessionCookie())
+	tx.Commit()
+
+	resp, err := client.Do(req)
+	redirectURL, _ := resp.Location()
+	if err == nil || resp.StatusCode != http.StatusSeeOther || redirectURL.Path != "/displayResetLink" {
+		t.Error("User was not redirected properly")
+	}
+
+	tx, _ = db.Begin()
+	ses, _ = a.sesHandler.ParseSessionCookie(tx, resp.Cookies()[0])
+	tx.Commit()
+	messages, errors := ses.Flashes()
+	if len(messages) == 0 || len(errors) != 0 {
+		t.Fatal("Flashes should contain reset link")
+	}
+
+	url, err := url.Parse(messages[1].(string))
+	if err != nil || !strings.Contains(messages[0].(string), "Please send the following link:") || url.Query().Get("resetToken") == "" {
+		t.Error("Url doesn't contail resetToken")
+	}
+
+	resp.Body.Close()
+	removeTestUserFromDatabase()
+}
+
 func TestSendPasswordResetEmailWithoutCSRF(t *testing.T) {
-	err := addTestUserToDatabase(true)
+	err := addTestUserToDatabase(Member, true)
 	if err != nil {
 		t.Error(err)
 	}
@@ -313,7 +363,7 @@ func TestSendPasswordResetEmailWithoutCSRF(t *testing.T) {
 }
 
 func TestSendPasswordResetEmailBadEmail(t *testing.T) {
-	err := addTestUserToDatabase(true)
+	err := addTestUserToDatabase(Member, true)
 	if err != nil {
 		t.Error(err)
 	}

@@ -4,3 +4,4 @@ data/
 codeship.aes
 codecov.sh
 env
+.DS_Store
