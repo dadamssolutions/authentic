@@ -6,11 +6,12 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/dadamssolutions/authentic/authdb"
 	"github.com/dadamssolutions/authentic/handlers/session"
 )
 
 func TestUserLogOutHandler(t *testing.T) {
-	err := addTestUserToDatabase(Member, true)
+	err := addTestUserToDatabase(authdb.Member, true)
 	if err != nil {
 		t.Error(err)
 	}

@@ -1,6 +1,6 @@
 module github.com/dadamssolutions/authentic
 
-go 1.13
+go 1.15
 
 require (
 	github.com/dadamssolutions/adaptd v1.0.5

@@ -10,7 +10,6 @@ package authentic
 import (
 	"context"
 	"errors"
-	"fmt"
 	"html/template"
 	"log"
 	"net/http"
@@ -18,30 +17,15 @@ import (
 	"time"
 
 	"github.com/dadamssolutions/adaptd"
+	"github.com/dadamssolutions/authentic/authdb"
 	"github.com/dadamssolutions/authentic/handlers/csrf"
 	"github.com/dadamssolutions/authentic/handlers/email"
 	"github.com/dadamssolutions/authentic/handlers/passreset"
 	"github.com/dadamssolutions/authentic/handlers/session"
 	"github.com/dadamssolutions/authentic/handlers/session/sessions"
-	"github.com/jackc/pgx/v4"
 	"github.com/jackc/pgx/v4/pgxpool"
 	"golang.org/x/crypto/bcrypt"
 )
-
-func createUsersTable(ctx context.Context, db *pgxpool.Pool, tableName string) error {
-	tx, err := db.Begin(ctx)
-	if err != nil {
-		return nil
-	}
-	_, err = tx.Exec(ctx, fmt.Sprintf(createUsersTableSQL, pgx.Identifier{tableName}.Sanitize()))
-	if err != nil {
-		if err := tx.Rollback(ctx); err != nil {
-			panic(err)
-		}
-		return err
-	}
-	return tx.Commit(ctx)
-}
 
 // HTTPAuth is a general handler that authenticates a user for http requests.
 // It also handles csrf token generation and validation.
@@ -50,10 +34,10 @@ type HTTPAuth struct {
 	csrfHandler                *csrf.Handler
 	passResetHandler           *passreset.Handler
 	emailHandler               *email.Sender
+	conn                       authdb.Conn
 	secret                     []byte
 	domainName                 string
 	allowXForwardedProto       bool
-	usersTableName             string
 	LoginURL                   string
 	RedirectAfterLogin         string
 	LogOutURL                  string
@@ -77,12 +61,12 @@ type HTTPAuth struct {
 //
 // In order for this to work properly, you must also set the two email templates and the error template.
 // i.e. `auth.PasswordResetEmailTemplate = template.Must(template.ParseFiles("templates/passwordreset.tmpl.html"))`
-func DefaultHTTPAuth(ctx context.Context, db *pgxpool.Pool, usersTableName, domainName string, allowXForwardedProto bool, emailSender *email.Sender, sessionTimeout, persistentSessionTimeout, csrfsTimeout, passwordResetTimeout time.Duration, cost int, secret []byte) (*HTTPAuth, error) {
+func DefaultHTTPAuth(ctx context.Context, db *pgxpool.Pool, conn authdb.Conn, domainName string, allowXForwardedProto bool, emailSender *email.Sender, sessionTimeout, persistentSessionTimeout, csrfsTimeout, passwordResetTimeout time.Duration, cost int, secret []byte) (*HTTPAuth, error) {
 	var err error
 	g := func(pass []byte) ([]byte, error) {
 		return bcrypt.GenerateFromPassword(pass, cost)
 	}
-	ah := &HTTPAuth{emailHandler: emailSender, usersTableName: usersTableName, secret: secret, allowXForwardedProto: allowXForwardedProto}
+	ah := &HTTPAuth{emailHandler: emailSender, secret: secret, allowXForwardedProto: allowXForwardedProto, conn: conn}
 	// Password hashing functions
 	ah.GenerateHashFromPassword = g
 	ah.CompareHashAndPassword = bcrypt.CompareHashAndPassword
@@ -104,14 +88,9 @@ func DefaultHTTPAuth(ctx context.Context, db *pgxpool.Pool, usersTableName, doma
 		// Password reset handler could not be created, likely a database problem.
 		return nil, errors.New("Password reset handler could not be created")
 	}
-	// Create the user database
-	err = createUsersTable(ctx, db, ah.usersTableName)
-	if err != nil {
-		return nil, errors.New("Users database table could not be created")
-	}
 
 	// Add https:// to domain name, if necessary
-	if strings.HasPrefix(domainName, "https://") {
+	if !strings.HasPrefix(domainName, "https://") {
 		domainName = "https://" + domainName
 	}
 	// Important redirecting URLs
@@ -183,7 +162,7 @@ func (a *HTTPAuth) AttachSessionCookie() adaptd.Adapter {
 				}
 				err = a.sesHandler.AttachCookie(r.Context(), w, ses)
 				if err == nil {
-					updateUserLastAccess(r.Context(), a.usersTableName, ses.Username())
+					a.conn.UpdateUserLastAccess(r.Context(), ses.Username())
 				}
 			}
 			h.ServeHTTP(w, r)
@@ -221,7 +200,7 @@ func (a *HTTPAuth) RedirectIfUserNotAuthenticated() adaptd.Adapter {
 
 // RedirectIfNoPermission is like http.HandleFunc except it verifies the user is logged in and
 // has permission to view the page.
-func (a *HTTPAuth) RedirectIfNoPermission(minRole Role) adaptd.Adapter {
+func (a *HTTPAuth) RedirectIfNoPermission(minRole authdb.Role) adaptd.Adapter {
 	return func(h http.Handler) http.Handler {
 		f := func(w http.ResponseWriter, r *http.Request) bool {
 			a.userIsAuthenticated(w, r)
@@ -287,7 +266,7 @@ func (a *HTTPAuth) StandardPostAndGetAdapter(postHandler http.Handler, redirectO
 }
 
 // CurrentUser returns the username of the current user
-func (a *HTTPAuth) CurrentUser(r *http.Request) *User {
+func (a *HTTPAuth) CurrentUser(r *http.Request) *authdb.User {
 	// If there is a current user, then we must have a cooke for them.
 	ses, err := a.sesHandler.ParseSessionFromRequest(r)
 	if ses != nil && !ses.IsUserLoggedIn() {
@@ -305,7 +284,7 @@ func (a *HTTPAuth) CurrentUser(r *http.Request) *User {
 		return user
 	}
 	// If there is a cookie, then for simplicity, we add the user to the Request's context.
-	user = getUserFromDB(r.Context(), a.usersTableName, "username", ses.Username())
+	user = a.conn.GetUserFromDB(r.Context(), "username", ses.Username())
 	if user != nil {
 		*r = *r.WithContext(NewUserContext(r.Context(), user))
 	}
@@ -345,7 +324,7 @@ func (a *HTTPAuth) userIsAuthenticated(w http.ResponseWriter, r *http.Request) b
 		*r = *r.WithContext(NewSessionContext(r.Context(), ses))
 	}
 	if ses.IsUserLoggedIn() {
-		user := getUserFromDB(r.Context(), a.usersTableName, "username", ses.Username())
+		user := a.conn.GetUserFromDB(r.Context(), "username", ses.Username())
 		*r = *r.WithContext(NewUserContext(r.Context(), user))
 		return true
 	}

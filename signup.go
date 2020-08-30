@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/dadamssolutions/adaptd"
+	"github.com/dadamssolutions/authentic/authdb"
 )
 
 // SignUpAdapter handles the sign up GET and POST requests.
@@ -42,7 +43,7 @@ func (a *HTTPAuth) SignUpVerificationAdapter() adaptd.Adapter {
 			return fmt.Errorf("Invalid sign-up verification token")
 		}
 
-		u := getUserFromDB(r.Context(), a.usersTableName, "username", username)
+		u := a.conn.GetUserFromDB(r.Context(), "username", username)
 		*r = *r.WithContext(NewUserContext(r.Context(), u))
 		return nil
 	}
@@ -86,9 +87,9 @@ func (a *HTTPAuth) signUp(w http.ResponseWriter, r *http.Request) {
 		*r = *r.WithContext(NewErrorContext(r.Context(), err))
 		return
 	}
-	user := &User{FirstName: firstName, LastName: lastName, Username: strings.ToLower(username), Email: strings.ToLower(addr.Address), passHash: hashedPassword, validated: false}
+	user := authdb.NewUser(firstName, lastName, strings.ToLower(username), strings.ToLower(addr.Address), hashedPassword, false)
 
-	if usernameExists, emailExists := usernameOrEmailExists(r.Context(), a.usersTableName, user); usernameExists {
+	if usernameExists, emailExists := a.conn.UsernameOrEmailExists(r.Context(), user); usernameExists {
 		log.Printf("Username %v exists\n", user.Username)
 		*r = *r.WithContext(NewErrorContext(
 			r.Context(),
@@ -109,7 +110,7 @@ func (a *HTTPAuth) signUp(w http.ResponseWriter, r *http.Request) {
 	data := make(map[string]interface{})
 	data["Link"] = "https://" + a.domainName + a.SignUpVerificationURL + "?" + token.Query()
 	err = a.emailHandler.SendMessage(a.SignUpEmailTemplate, "Welcome!", data, user)
-	if err != nil || !user.isValid() {
+	if err != nil || !user.IsValid() {
 		log.Println("User sign up failed, redirecting back to sign up page")
 		*r = *r.WithContext(NewErrorContext(
 			r.Context(),
@@ -117,7 +118,7 @@ func (a *HTTPAuth) signUp(w http.ResponseWriter, r *http.Request) {
 		))
 		return
 	}
-	addUserToDatabase(r.Context(), a.usersTableName, user)
+	a.conn.AddUserToDatabase(r.Context(), user)
 }
 
 func (a *HTTPAuth) verifySignUp(w http.ResponseWriter, r *http.Request) error {
@@ -127,7 +128,7 @@ func (a *HTTPAuth) verifySignUp(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	validateUser(r.Context(), a.usersTableName, user)
+	a.conn.ValidateUser(r.Context(), user)
 
 	return nil
 }

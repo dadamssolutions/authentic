@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/dadamssolutions/adaptd"
+	"github.com/dadamssolutions/authentic/authdb"
 	"github.com/dadamssolutions/authentic/handlers/passreset"
 )
 
@@ -54,7 +55,7 @@ func (a *HTTPAuth) PasswordResetAdapter() adaptd.Adapter {
 	// A check function that returns err == nil if the user is logged in or the password reset token is valid.
 	f := func(w http.ResponseWriter, r *http.Request) error {
 		username, err := a.passResetHandler.ValidToken(r)
-		u := getUserFromDB(r.Context(), a.usersTableName, "username", username)
+		u := a.conn.GetUserFromDB(r.Context(), "username", username)
 		*r = *r.WithContext(NewUserContext(r.Context(), u))
 		if !a.userIsAuthenticated(w, r) && err != nil {
 			log.Printf("Cannot generate a token for %v\n", username)
@@ -105,7 +106,7 @@ func (a *HTTPAuth) passwordReset(w http.ResponseWriter, r *http.Request) {
 		*r = *r.WithContext(NewErrorContext(r.Context(), err))
 		return
 	}
-	updateUserPassword(r.Context(), a.usersTableName, username, base64.RawURLEncoding.EncodeToString(passHash))
+	a.conn.UpdateUserPassword(r.Context(), username, base64.RawURLEncoding.EncodeToString(passHash))
 	if err != nil {
 		*r = *r.WithContext(NewErrorContext(r.Context(), err))
 	} else {
@@ -126,13 +127,13 @@ func (a *HTTPAuth) passwordResetRequest(w http.ResponseWriter, r *http.Request) 
 	redirectPath := r.PostFormValue("redirect")
 	a.userIsAuthenticated(w, r)
 	admin := UserFromContext(r.Context())
-	if err != nil || admin == nil || !admin.HasPermission(Admin) {
+	if err != nil || admin == nil || !admin.HasPermission(authdb.Admin) {
 		// If there was nothing to parse, then we assume that the email should be sent
 		sendEmail = true
 	} else if redirectPath == "" {
 		redirectPath = "/"
 	}
-	user := getUserFromDB(r.Context(), a.usersTableName, "email", strings.ToLower(addr.Address))
+	user := a.conn.GetUserFromDB(r.Context(), "email", strings.ToLower(addr.Address))
 	if user == nil {
 		*r = *r.WithContext(NewErrorContext(r.Context(), fmt.Errorf("Email %v does not exist", addr.Address)))
 		return

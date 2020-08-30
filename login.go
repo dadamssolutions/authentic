@@ -42,13 +42,13 @@ func (a *HTTPAuth) logUserIn(w http.ResponseWriter, r *http.Request) {
 	username = strings.ToLower(username)
 	remember := url.QueryEscape(r.PostFormValue("remember"))
 	rememberMe, _ := strconv.ParseBool(remember)
-	user := getUserFromDB(r.Context(), a.usersTableName, "username", username)
+	user := a.conn.GetUserFromDB(r.Context(), "username", username)
 	// If the user cannot be found by username, then we look for the email address.
 	if user == nil {
-		user = getUserFromDB(r.Context(), a.usersTableName, "email", strings.ToLower(r.PostFormValue("username")))
+		user = a.conn.GetUserFromDB(r.Context(), "email", strings.ToLower(r.PostFormValue("username")))
 	}
 	// If the user has provided correct credentials, then we log them in by creating a session.
-	if user != nil && user.IsValidated() && a.CompareHashAndPassword(user.passHash, []byte(password)) == nil {
+	if user != nil && user.IsValidated() && user.VerifyPassword([]byte(password), a.CompareHashAndPassword) {
 		ses = a.sesHandler.CopySession(r.Context(), ses, rememberMe)
 		a.sesHandler.LogUserIn(r.Context(), ses, user.Username)
 		*r = *r.WithContext(NewUserContext(r.Context(), user))

@@ -8,11 +8,12 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/dadamssolutions/authentic/authdb"
 	"github.com/dadamssolutions/authentic/handlers/session"
 )
 
 func TestUserLogInHandlerNotLoggedIn(t *testing.T) {
-	err := addTestUserToDatabase(Member, true)
+	err := addTestUserToDatabase(authdb.Member, true)
 	if err != nil {
 		t.Error(err)
 	}
@@ -37,7 +38,7 @@ func TestUserLogInHandlerNotLoggedIn(t *testing.T) {
 }
 
 func TestUserLogInHandlerLoggingIn(t *testing.T) {
-	err := addTestUserToDatabase(Member, true)
+	err := addTestUserToDatabase(authdb.Member, true)
 	if err != nil {
 		t.Error(err)
 	}
@@ -123,7 +124,7 @@ func TestUserLogInHandlerLoggingIn(t *testing.T) {
 }
 
 func TestUserLogInHandlerBadInfo(t *testing.T) {
-	err := addTestUserToDatabase(Member, true)
+	err := addTestUserToDatabase(authdb.Member, true)
 	if err != nil {
 		t.Error(err)
 	}
@@ -186,7 +187,7 @@ func TestUserLogInHandlerBadInfo(t *testing.T) {
 }
 
 func TestUserLogInHandlerPersistent(t *testing.T) {
-	err := addTestUserToDatabase(Member, true)
+	err := addTestUserToDatabase(authdb.Member, true)
 	if err != nil {
 		t.Error(err)
 	}
@@ -243,7 +244,7 @@ func TestUserLogInHandlerPersistent(t *testing.T) {
 }
 
 func TestUserLogInHandlerBadPersistent(t *testing.T) {
-	err := addTestUserToDatabase(Member, true)
+	err := addTestUserToDatabase(authdb.Member, true)
 	if err != nil {
 		t.Error(err)
 	}
@@ -287,7 +288,7 @@ func TestUserLogInHandlerBadPersistent(t *testing.T) {
 }
 
 func TestUserLogInHandlerNoCSRF(t *testing.T) {
-	err := addTestUserToDatabase(Member, true)
+	err := addTestUserToDatabase(authdb.Member, true)
 	if err != nil {
 		t.Error(err)
 	}
@@ -323,7 +324,7 @@ func TestUserLogInHandlerNoCSRF(t *testing.T) {
 	removeTestUserFromDatabase()
 }
 func TestUserNotValidatedCannotLogIn(t *testing.T) {
-	err := addTestUserToDatabase(Member, false)
+	err := addTestUserToDatabase(authdb.Member, false)
 	if err != nil {
 		t.Error(err)
 	}
@@ -386,7 +387,7 @@ func TestUserLogInHandlerRedirecting(t *testing.T) {
 }
 
 func TestUserLogInHandlerFailedLoginKeepsQuery(t *testing.T) {
-	err := addTestUserToDatabase(Member, true)
+	err := addTestUserToDatabase(authdb.Member, true)
 	if err != nil {
 		t.Error(err)
 	}
@@ -430,7 +431,7 @@ func TestUserLogInHandlerFailedLoginKeepsQuery(t *testing.T) {
 }
 
 func TestUserLogInHandlerRedirectWithQuery(t *testing.T) {
-	err := addTestUserToDatabase(Member, true)
+	err := addTestUserToDatabase(authdb.Member, true)
 	if err != nil {
 		t.Error(err)
 	}

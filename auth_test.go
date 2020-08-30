@@ -3,7 +3,6 @@ package authentic
 import (
 	"bytes"
 	"context"
-	"database/sql"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -19,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dadamssolutions/authentic/authdb"
 	"github.com/dadamssolutions/authentic/handlers/email"
 	"github.com/dadamssolutions/authentic/handlers/session"
 	"github.com/jackc/pgx/v4"
@@ -44,27 +44,12 @@ func (t testHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte("Test handler"))
 }
 
-func deleteTestTables(db *sql.DB, tableName ...string) error {
-	tx, err := db.Begin()
-	if err != nil {
-		return nil
-	}
-	for i := range tableName {
-		_, err = tx.Exec(fmt.Sprintf(deleteTestTableSQL, pgx.Identifier{tableName[i]}.Sanitize()))
-		if err != nil {
-			tx.Rollback()
-			return err
-		}
-	}
-	return tx.Commit()
-}
-
 func addTestUserToDatabase(role int, validated bool) error {
 	// Add user to the database for testing
 	pass := strings.Repeat("d", 64)
 	passHash, _ := a.GenerateHashFromPassword([]byte(pass))
 	tx, _ := db.Begin(ctx)
-	_, err := tx.Exec(ctx, fmt.Sprintf("INSERT INTO %v (username, email, pass_hash, role, validated) VALUES ('dadams', 'test@gmail.com', '%v', %v, %v);", a.usersTableName, base64.RawURLEncoding.EncodeToString(passHash), role, validated))
+	_, err := tx.Exec(ctx, fmt.Sprintf("INSERT INTO %v (username, email, pass_hash, role, validated) VALUES ('dadams', 'test@gmail.com', '%v', %v, %v);", "users", base64.RawURLEncoding.EncodeToString(passHash), role, validated))
 	if err != nil {
 		tx.Rollback(ctx)
 		return err
@@ -77,7 +62,7 @@ func removeTestUserFromDatabase() {
 	tx, _ := db.Begin(ctx)
 	tx.Exec(ctx, "DELETE FROM sessions WHERE user_id = 'dadams';")
 	tx.Exec(ctx, "DELETE FROM csrfs WHERE user_id = 'dadams';")
-	tx.Exec(ctx, fmt.Sprintf("DELETE FROM %v WHERE username = 'dadams';", a.usersTableName))
+	tx.Exec(ctx, fmt.Sprintf("DELETE FROM %v WHERE username = 'dadams';", "users"))
 	tx.Commit(ctx)
 }
 
@@ -127,7 +112,7 @@ func TestUserLoggedInHandler(t *testing.T) {
 }
 
 func TestUserHasRole(t *testing.T) {
-	err := addTestUserToDatabase(Member, true)
+	err := addTestUserToDatabase(authdb.Member, true)
 	if err != nil {
 		t.Error(err)
 	}
@@ -153,7 +138,7 @@ func TestUserHasRole(t *testing.T) {
 	}
 	resp.Body.Close()
 
-	user.Role = Admin
+	user.Role = authdb.Admin
 	req, _ = http.NewRequest(http.MethodGet, ts.URL, nil)
 
 	tx, _ = db.Begin(ctx)
@@ -173,7 +158,7 @@ func TestUserHasRole(t *testing.T) {
 }
 
 func TestUserDoesNotHaveRole(t *testing.T) {
-	err := addTestUserToDatabase(Member, true)
+	err := addTestUserToDatabase(authdb.Member, true)
 	if err != nil {
 		t.Error(err)
 	}
@@ -199,7 +184,7 @@ func TestUserDoesNotHaveRole(t *testing.T) {
 	}
 	resp.Body.Close()
 
-	user.Role = Manager
+	user.Role = authdb.Manager
 	req, _ = http.NewRequest(http.MethodGet, ts.URL, nil)
 
 	tx, _ = db.Begin(ctx)
@@ -219,7 +204,7 @@ func TestUserDoesNotHaveRole(t *testing.T) {
 }
 
 func TestCurrentUserBadCookie(t *testing.T) {
-	err := addTestUserToDatabase(Member, true)
+	err := addTestUserToDatabase(authdb.Member, true)
 	if err != nil {
 		t.Error(err)
 	}
@@ -250,7 +235,7 @@ func TestCurrentUserBadCookie(t *testing.T) {
 }
 
 func TestCurrentUserGoodCookie(t *testing.T) {
-	err := addTestUserToDatabase(Member, true)
+	err := addTestUserToDatabase(authdb.Member, true)
 	if err != nil {
 		t.Error(err)
 	}
@@ -273,12 +258,12 @@ func TestCurrentUserGoodCookie(t *testing.T) {
 }
 
 func TestCurrentUserFromContext(t *testing.T) {
-	err := addTestUserToDatabase(Member, true)
+	err := addTestUserToDatabase(authdb.Member, true)
 	if err != nil {
 		t.Error(err)
 	}
 
-	user := &User{FirstName: "Donnie", LastName: "Adams", Username: "dadams", Email: "test%40gmail.com"}
+	user := &authdb.User{FirstName: "Donnie", LastName: "Adams", Username: "dadams", Email: "test%40gmail.com"}
 
 	tx, _ := db.Begin(ctx)
 	c := session.NewTxContext(ctx, tx)
@@ -306,7 +291,7 @@ func TestCurrentUserFromContext(t *testing.T) {
 }
 
 func TestIsCurrentUser(t *testing.T) {
-	err := addTestUserToDatabase(Member, true)
+	err := addTestUserToDatabase(authdb.Member, true)
 	if err != nil {
 		t.Error(err)
 	}
@@ -341,30 +326,27 @@ func TestIsCurrentUser(t *testing.T) {
 	removeTestUserFromDatabase()
 }
 
-func TestGetUserNotInDatabasePasswordHash(t *testing.T) {
-	var b []byte
+func TestGetUserNotInDatabase(t *testing.T) {
+	var u *authdb.User
 	tx, _ := db.Begin(ctx)
-	defer catchTxError(ctx, tx, t, true)
-	defer func() {
-		if b != nil {
-			t.Error("User not in database returned a valid password hash")
-		}
-	}()
-	b = getUserPasswordHash(ctx, tx, a.usersTableName, "nadams")
+	u = a.conn.GetUserFromDB(session.NewTxContext(context.Background(), tx), "username", "nadams")
+	if u != nil {
+		t.Error("User not in database returned as valid")
+	}
 }
 
 func TestGetUserInDatabasePasswordHash(t *testing.T) {
-	err := addTestUserToDatabase(Member, true)
+	err := addTestUserToDatabase(authdb.Member, true)
 	if err != nil {
 		t.Error(err)
 	}
 	tx, _ := db.Begin(ctx)
 
-	b := getUserPasswordHash(ctx, tx, a.usersTableName, "dadams")
-	a.CompareHashAndPassword(b, []byte(strings.Repeat("d", 64)))
-	if b == nil {
-		log.Println(b)
-		t.Error("User in database returned an invalid password hash")
+	u := a.conn.GetUserFromDB(session.NewTxContext(context.Background(), tx), "username", "dadams")
+	u.VerifyPassword([]byte(strings.Repeat("d", 64)), a.CompareHashAndPassword)
+	if u == nil {
+		log.Println(u)
+		t.Error("User in database returned as invalid")
 	}
 	tx.Commit(ctx)
 
@@ -372,22 +354,22 @@ func TestGetUserInDatabasePasswordHash(t *testing.T) {
 }
 
 func TestUpdateUserLastAccess(t *testing.T) {
-	err := addTestUserToDatabase(Member, true)
+	err := addTestUserToDatabase(authdb.Member, true)
 	if err != nil {
 		t.Error(err)
 	}
-	epoch, _ := time.Parse(dateLayout, "1970-01-01 00:00:00")
+	epoch, _ := time.Parse("2006-01-02 15:04:05", "1970-01-01 00:00:00")
 
 	tx, _ := db.Begin(ctx)
 	c := session.NewTxContext(ctx, tx)
-	updateTime := getUserLastAccess(c, a.usersTableName, "dadams")
+	updateTime := a.conn.GetUserLastAccess(c, "dadams")
 	if !updateTime.Equal(epoch) {
 		t.Error("User should be created with epoch time as last access time")
 	}
 
 	now := time.Now()
-	updateUserLastAccess(c, a.usersTableName, "dadams")
-	updateTime = getUserLastAccess(c, a.usersTableName, "dadams")
+	a.conn.UpdateUserLastAccess(c, "dadams")
+	updateTime = a.conn.GetUserLastAccess(c, "dadams")
 	if updateTime.Equal(now) {
 		t.Error("User access time not updated")
 	}
@@ -418,7 +400,7 @@ func TestMain(m *testing.M) {
 	log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
 	var err error
 	ctx = context.Background()
-	triesLeft := 5
+	triesLeft := 10
 	db, err = pgxpool.Connect(context.Background(), "postgres://authentic:authentic@db:5432/authentic?sslmode=disable")
 
 	// Wait for the database to be ready.
@@ -429,11 +411,12 @@ func TestMain(m *testing.M) {
 		}
 		log.Printf("Database not ready, %d tries left", triesLeft)
 		triesLeft--
-		time.Sleep(10 * time.Second)
+		time.Sleep(5 * time.Second)
 	}
 	eh := email.NewSender("House Points Test", "smtp.test.com", "587", "email@test.com", "tEsTPaSsWoRd")
 	eh.SendMail = SendMail
-	a, err = DefaultHTTPAuth(ctx, db, "users", "www.test.com", false, eh, 2*time.Second, 3*time.Second, 2*time.Second, 2*time.Second, 10, bytes.Repeat([]byte("d"), 16))
+	conn, _ := authdb.NewConn(ctx, db, "users")
+	a, err = DefaultHTTPAuth(ctx, db, conn, "www.test.com", false, eh, 2*time.Second, 3*time.Second, 2*time.Second, 2*time.Second, 10, bytes.Repeat([]byte("d"), 16))
 	if err != nil {
 		log.Panic(err)
 	}

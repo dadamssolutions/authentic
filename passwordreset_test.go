@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/dadamssolutions/authentic/authdb"
 	"github.com/dadamssolutions/authentic/handlers/session"
 )
 
@@ -30,7 +31,7 @@ func TestPasswordResetNoQuery(t *testing.T) {
 }
 
 func TestPasswordResetLoggedIn(t *testing.T) {
-	err := addTestUserToDatabase(Member, true)
+	err := addTestUserToDatabase(authdb.Member, true)
 	if err != nil {
 		t.Error(err)
 	}
@@ -68,7 +69,7 @@ func TestPasswordResetLoggedIn(t *testing.T) {
 }
 
 func TestPasswordResetValidQuery(t *testing.T) {
-	err := addTestUserToDatabase(Member, true)
+	err := addTestUserToDatabase(authdb.Member, true)
 	if err != nil {
 		t.Error(err)
 	}
@@ -101,7 +102,7 @@ func TestPasswordResetValidQuery(t *testing.T) {
 }
 
 func TestPasswordResetForm(t *testing.T) {
-	err := addTestUserToDatabase(Member, true)
+	err := addTestUserToDatabase(authdb.Member, true)
 	if err != nil {
 		t.Error(err)
 	}
@@ -139,8 +140,8 @@ func TestPasswordResetForm(t *testing.T) {
 	resp.Body.Close()
 
 	tx, _ = db.Begin(ctx)
-	passHash := getUserPasswordHash(ctx, tx, a.usersTableName, "dadams")
-	if a.CompareHashAndPassword(passHash, ([]byte(bytes.Repeat([]byte("e"), 64)))) != nil {
+	u := a.conn.GetUserFromDB(session.NewTxContext(ctx, tx), "username", "dadams")
+	if !u.VerifyPassword([]byte(bytes.Repeat([]byte("e"), 64)), a.CompareHashAndPassword) {
 		t.Error("Password hash wasn't updated properly")
 	}
 	tx.Commit(ctx)
@@ -149,7 +150,7 @@ func TestPasswordResetForm(t *testing.T) {
 }
 
 func TestPasswordResetNoCSRF(t *testing.T) {
-	err := addTestUserToDatabase(Member, true)
+	err := addTestUserToDatabase(authdb.Member, true)
 	if err != nil {
 		t.Error(err)
 	}
@@ -181,8 +182,8 @@ func TestPasswordResetNoCSRF(t *testing.T) {
 	resp.Body.Close()
 
 	tx, _ = db.Begin(ctx)
-	passHash := getUserPasswordHash(ctx, tx, a.usersTableName, "dadams")
-	if a.CompareHashAndPassword(passHash, ([]byte(bytes.Repeat([]byte("d"), 64)))) != nil {
+	u := a.conn.GetUserFromDB(session.NewTxContext(ctx, tx), "username", "dadams")
+	if !u.VerifyPassword([]byte(bytes.Repeat([]byte("d"), 64)), a.CompareHashAndPassword) {
 		t.Error("Password hash was updated when it shouldn't have")
 	}
 	tx.Commit(ctx)
@@ -191,7 +192,7 @@ func TestPasswordResetNoCSRF(t *testing.T) {
 }
 
 func TestPasswordResetNoPasswordToken(t *testing.T) {
-	err := addTestUserToDatabase(Member, true)
+	err := addTestUserToDatabase(authdb.Member, true)
 	if err != nil {
 		t.Error(err)
 	}
@@ -225,8 +226,8 @@ func TestPasswordResetNoPasswordToken(t *testing.T) {
 	tx.Commit(ctx)
 
 	tx, _ = db.Begin(ctx)
-	passHash := getUserPasswordHash(ctx, tx, a.usersTableName, "dadams")
-	if a.CompareHashAndPassword(passHash, ([]byte(bytes.Repeat([]byte("d"), 64)))) != nil {
+	u := a.conn.GetUserFromDB(session.NewTxContext(ctx, tx), "username", "dadams")
+	if !u.VerifyPassword([]byte(bytes.Repeat([]byte("d"), 64)), a.CompareHashAndPassword) {
 		t.Error("Password hash was updated when it shouldn't have")
 	}
 	tx.Commit(ctx)
@@ -250,7 +251,7 @@ func TestPasswordResetRequest(t *testing.T) {
 }
 
 func TestSendPasswordResetEmail(t *testing.T) {
-	err := addTestUserToDatabase(Member, true)
+	err := addTestUserToDatabase(authdb.Member, true)
 	if err != nil {
 		t.Error(err)
 	}
@@ -283,7 +284,7 @@ func TestSendPasswordResetEmail(t *testing.T) {
 }
 
 func TestNoPasswordResetEmail(t *testing.T) {
-	err := addTestUserToDatabase(Admin, true)
+	err := addTestUserToDatabase(authdb.Admin, true)
 	if err != nil {
 		t.Error(err)
 	}
@@ -333,7 +334,7 @@ func TestNoPasswordResetEmail(t *testing.T) {
 }
 
 func TestSendPasswordResetEmailWithoutCSRF(t *testing.T) {
-	err := addTestUserToDatabase(Member, true)
+	err := addTestUserToDatabase(authdb.Member, true)
 	if err != nil {
 		t.Error(err)
 	}
@@ -363,7 +364,7 @@ func TestSendPasswordResetEmailWithoutCSRF(t *testing.T) {
 }
 
 func TestSendPasswordResetEmailBadEmail(t *testing.T) {
-	err := addTestUserToDatabase(Member, true)
+	err := addTestUserToDatabase(authdb.Member, true)
 	if err != nil {
 		t.Error(err)
 	}

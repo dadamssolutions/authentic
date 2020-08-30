@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/dadamssolutions/authentic/authdb"
 	"github.com/dadamssolutions/authentic/handlers/csrf"
 	"github.com/dadamssolutions/authentic/handlers/session"
 )
@@ -68,7 +69,7 @@ func TestSignUpPost(t *testing.T) {
 }
 
 func TestSignUpPostErrorChecking(t *testing.T) {
-	err := addTestUserToDatabase(Member, true)
+	err := addTestUserToDatabase(authdb.Member, true)
 	if err != nil {
 		t.Error(err)
 	}
@@ -114,7 +115,7 @@ func TestSignUpPostErrorChecking(t *testing.T) {
 }
 
 func TestUserValidation(t *testing.T) {
-	err := addTestUserToDatabase(Member, false)
+	err := addTestUserToDatabase(authdb.Member, false)
 	if err != nil {
 		t.Error(err)
 	}
@@ -133,7 +134,7 @@ func TestUserValidation(t *testing.T) {
 	}
 
 	tx, _ = db.Begin(ctx)
-	user := getUserFromDB(session.NewTxContext(ctx, tx), a.usersTableName, "username", "dadams")
+	user := a.conn.GetUserFromDB(session.NewTxContext(ctx, tx), "username", "dadams")
 	if !user.IsValidated() {
 		log.Println(user)
 		t.Error("User validation request passed, but user was not validated in the database")
@@ -145,7 +146,7 @@ func TestUserValidation(t *testing.T) {
 }
 
 func TestUserValidationNoQuery(t *testing.T) {
-	err := addTestUserToDatabase(Member, false)
+	err := addTestUserToDatabase(authdb.Member, false)
 	if err != nil {
 		t.Error(err)
 	}
@@ -165,7 +166,7 @@ func TestUserValidationNoQuery(t *testing.T) {
 	}
 
 	tx, _ := db.Begin(ctx)
-	user := getUserFromDB(session.NewTxContext(ctx, tx), a.usersTableName, "username", "dadams")
+	user := a.conn.GetUserFromDB(session.NewTxContext(ctx, tx), "username", "dadams")
 	if user.IsValidated() {
 		log.Println(user)
 		t.Error("User validation request passed, but user was validated in the database incorrectly")
@@ -177,7 +178,7 @@ func TestUserValidationNoQuery(t *testing.T) {
 }
 
 func TestUserValidationBadQuery(t *testing.T) {
-	err := addTestUserToDatabase(Member, false)
+	err := addTestUserToDatabase(authdb.Member, false)
 	if err != nil {
 		t.Error(err)
 	}
@@ -197,7 +198,7 @@ func TestUserValidationBadQuery(t *testing.T) {
 	}
 
 	tx, _ = db.Begin(ctx)
-	user := getUserFromDB(session.NewTxContext(ctx, tx), a.usersTableName, "username", "dadams")
+	user := a.conn.GetUserFromDB(session.NewTxContext(ctx, tx), "username", "dadams")
 	if user.IsValidated() {
 		log.Println(user)
 		t.Error("User validation request passed, but user was validated in the database incorrectly")
@@ -209,7 +210,7 @@ func TestUserValidationBadQuery(t *testing.T) {
 }
 
 func TestUserCannotValidateIfLoggedIn(t *testing.T) {
-	err := addTestUserToDatabase(Member, false)
+	err := addTestUserToDatabase(authdb.Member, false)
 	if err != nil {
 		t.Error(err)
 	}
@@ -238,7 +239,7 @@ func TestUserCannotValidateIfLoggedIn(t *testing.T) {
 }
 
 func TestUsernameExists(t *testing.T) {
-	err := addTestUserToDatabase(Member, false)
+	err := addTestUserToDatabase(authdb.Member, false)
 	if err != nil {
 		t.Error(err)
 	}
@@ -276,7 +277,7 @@ func TestUsernameExists(t *testing.T) {
 }
 
 func TestEmailExists(t *testing.T) {
-	err := addTestUserToDatabase(Member, false)
+	err := addTestUserToDatabase(authdb.Member, false)
 	if err != nil {
 		t.Error(err)
 	}
