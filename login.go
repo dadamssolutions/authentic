@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/dadamssolutions/adaptd"
-	"github.com/dadamssolutions/authentic/handlers/session"
 )
 
 // LoginAdapter handles the login GET and POST requests
@@ -43,16 +42,15 @@ func (a *HTTPAuth) logUserIn(w http.ResponseWriter, r *http.Request) {
 	username = strings.ToLower(username)
 	remember := url.QueryEscape(r.PostFormValue("remember"))
 	rememberMe, _ := strconv.ParseBool(remember)
-	tx := session.TxFromContext(r.Context())
-	user := getUserFromDB(tx, a.usersTableName, "username", username)
+	user := getUserFromDB(r.Context(), a.usersTableName, "username", username)
 	// If the user cannot be found by username, then we look for the email address.
 	if user == nil {
-		user = getUserFromDB(tx, a.usersTableName, "email", strings.ToLower(r.PostFormValue("username")))
+		user = getUserFromDB(r.Context(), a.usersTableName, "email", strings.ToLower(r.PostFormValue("username")))
 	}
 	// If the user has provided correct credentials, then we log them in by creating a session.
 	if user != nil && user.IsValidated() && a.CompareHashAndPassword(user.passHash, []byte(password)) == nil {
-		ses = a.sesHandler.CopySession(tx, ses, rememberMe)
-		a.sesHandler.LogUserIn(tx, ses, user.Username)
+		ses = a.sesHandler.CopySession(r.Context(), ses, rememberMe)
+		a.sesHandler.LogUserIn(r.Context(), ses, user.Username)
 		*r = *r.WithContext(NewUserContext(r.Context(), user))
 	}
 

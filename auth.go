@@ -8,7 +8,7 @@ authentic also "handles" all session information and csrf token generation and v
 package authentic
 
 import (
-	"database/sql"
+	"context"
 	"errors"
 	"fmt"
 	"html/template"
@@ -23,24 +23,24 @@ import (
 	"github.com/dadamssolutions/authentic/handlers/passreset"
 	"github.com/dadamssolutions/authentic/handlers/session"
 	"github.com/dadamssolutions/authentic/handlers/session/sessions"
-	"github.com/lib/pq"
-	_ "github.com/lib/pq" // Database driver
+	"github.com/jackc/pgx/v4"
+	"github.com/jackc/pgx/v4/pgxpool"
 	"golang.org/x/crypto/bcrypt"
 )
 
-func createUsersTable(db *sql.DB, tableName string) error {
-	tx, err := db.Begin()
+func createUsersTable(ctx context.Context, db *pgxpool.Pool, tableName string) error {
+	tx, err := db.Begin(ctx)
 	if err != nil {
 		return nil
 	}
-	_, err = tx.Exec(fmt.Sprintf(createUsersTableSQL, pq.QuoteIdentifier(tableName)))
+	_, err = tx.Exec(ctx, fmt.Sprintf(createUsersTableSQL, pgx.Identifier{tableName}.Sanitize()))
 	if err != nil {
-		if err := tx.Rollback(); err != nil {
+		if err := tx.Rollback(ctx); err != nil {
 			panic(err)
 		}
 		return err
 	}
-	return tx.Commit()
+	return tx.Commit(ctx)
 }
 
 // HTTPAuth is a general handler that authenticates a user for http requests.
@@ -69,15 +69,15 @@ type HTTPAuth struct {
 	CompareHashAndPassword     func([]byte, []byte) error
 }
 
-// DefaultHTTPAuth uses the standard bcyrpt functions for
+// DefaultHTTPAuth uses the standard bcrypt functions for
 // generating and comparing password hashes.
-// cost parameter is the desired cost for bycrypt generated hashes.
+// cost parameter is the desired cost for bcrypt generated hashes.
 // The parameters listed are the ones necessary for setting up the handler.
 // All other fields are customizable after creating the handler.
 //
 // In order for this to work properly, you must also set the two email templates and the error template.
 // i.e. `auth.PasswordResetEmailTemplate = template.Must(template.ParseFiles("templates/passwordreset.tmpl.html"))`
-func DefaultHTTPAuth(db *sql.DB, usersTableName, domainName string, allowXForwardedProto bool, emailSender *email.Sender, sessionTimeout, persistentSessionTimeout, csrfsTimeout, passwordResetTimeout time.Duration, cost int, secret []byte) (*HTTPAuth, error) {
+func DefaultHTTPAuth(ctx context.Context, db *pgxpool.Pool, usersTableName, domainName string, allowXForwardedProto bool, emailSender *email.Sender, sessionTimeout, persistentSessionTimeout, csrfsTimeout, passwordResetTimeout time.Duration, cost int, secret []byte) (*HTTPAuth, error) {
 	var err error
 	g := func(pass []byte) ([]byte, error) {
 		return bcrypt.GenerateFromPassword(pass, cost)
@@ -87,25 +87,25 @@ func DefaultHTTPAuth(db *sql.DB, usersTableName, domainName string, allowXForwar
 	ah.GenerateHashFromPassword = g
 	ah.CompareHashAndPassword = bcrypt.CompareHashAndPassword
 	// Sessions handler
-	ah.sesHandler, err = session.NewHandlerWithDB(db, "sessions", "sessionID", sessionTimeout, persistentSessionTimeout, secret)
+	ah.sesHandler, err = session.NewHandlerWithDB(ctx, db, "sessions", "sessionID", sessionTimeout, persistentSessionTimeout, secret)
 	if err != nil {
 		// Session handler could not be created, likely a database problem.
 		return nil, errors.New("Session handler could not be created")
 	}
 	// Cross-site request forgery handler
-	ah.csrfHandler = csrf.NewHandler(db, csrfsTimeout, secret)
+	ah.csrfHandler = csrf.NewHandler(ctx, db, csrfsTimeout, secret)
 	if ah.csrfHandler == nil {
 		// CSRF handler could not be created, likely a database problem.
 		return nil, errors.New("CSRF handler could not be created")
 	}
 	// Password reset token handler.
-	ah.passResetHandler = passreset.NewHandler(db, "pass_reset_tokens", passwordResetTimeout, secret)
+	ah.passResetHandler = passreset.NewHandler(ctx, db, "pass_reset_tokens", passwordResetTimeout, secret)
 	if ah.passResetHandler == nil {
 		// Password reset handler could not be created, likely a database problem.
 		return nil, errors.New("Password reset handler could not be created")
 	}
 	// Create the user database
-	err = createUsersTable(db, ah.usersTableName)
+	err = createUsersTable(ctx, db, ah.usersTableName)
 	if err != nil {
 		return nil, errors.New("Users database table could not be created")
 	}
@@ -129,22 +129,22 @@ func DefaultHTTPAuth(db *sql.DB, usersTableName, domainName string, allowXForwar
 }
 
 // AddDefaultHandlers adds the standard handlers needed for the auth handler.
-func (a *HTTPAuth) AddDefaultHandlers(db *sql.DB, home, signUp, afterSignUp, verifySignUp, logIn, afterLogIn, logOut, passResetRequest, passResetSent, passReset http.Handler) {
-	a.AddDefaultHandlersWithMux(http.DefaultServeMux, db, home, signUp, afterSignUp, verifySignUp, logIn, afterLogIn, logOut, passResetRequest, passResetSent, passReset)
+func (a *HTTPAuth) AddDefaultHandlers(ctx context.Context, db *pgxpool.Pool, home, signUp, afterSignUp, verifySignUp, logIn, afterLogIn, logOut, passResetRequest, passResetSent, passReset http.Handler) {
+	a.AddDefaultHandlersWithMux(ctx, http.DefaultServeMux, db, home, signUp, afterSignUp, verifySignUp, logIn, afterLogIn, logOut, passResetRequest, passResetSent, passReset)
 }
 
 // AddDefaultHandlersWithMux adds the standard handlers needed for the auth handler to the ServeMux.
-func (a *HTTPAuth) AddDefaultHandlersWithMux(mux *http.ServeMux, db *sql.DB, home, signUp, afterSignUp, verifySignUp, logIn, afterLogIn, logOut, passResetRequest, passResetSent, passReset http.Handler) {
-	mux.Handle("/", a.MustHaveAdapters(db)(home))
-	mux.Handle(a.SignUpURL, a.MustHaveAdapters(db, a.SignUpAdapter())(signUp))
-	mux.Handle(a.RedirectAfterSignUp, a.MustHaveAdapters(db)(afterSignUp))
-	mux.Handle(a.SignUpVerificationURL, a.MustHaveAdapters(db, a.SignUpVerificationAdapter())(verifySignUp))
-	mux.Handle(a.LoginURL, a.MustHaveAdapters(db, a.LoginAdapter())(logIn))
-	mux.Handle(a.RedirectAfterLogin, a.MustHaveAdapters(db, a.RedirectIfUserNotAuthenticated())(afterLogIn))
-	mux.Handle(a.LogOutURL, a.MustHaveAdapters(db, a.LogoutAdapter("/"))(logOut))
-	mux.Handle(a.PasswordResetURL, a.MustHaveAdapters(db, a.PasswordResetAdapter())(passReset))
-	mux.Handle(a.RedirectAfterResetRequest, a.MustHaveAdapters(db)(passResetSent))
-	mux.Handle(a.PasswordResetRequestURL, a.MustHaveAdapters(db, a.PasswordResetRequestAdapter())(passResetRequest))
+func (a *HTTPAuth) AddDefaultHandlersWithMux(ctx context.Context, mux *http.ServeMux, db *pgxpool.Pool, home, signUp, afterSignUp, verifySignUp, logIn, afterLogIn, logOut, passResetRequest, passResetSent, passReset http.Handler) {
+	mux.Handle("/", a.MustHaveAdapters(ctx, db)(home))
+	mux.Handle(a.SignUpURL, a.MustHaveAdapters(ctx, db, a.SignUpAdapter())(signUp))
+	mux.Handle(a.RedirectAfterSignUp, a.MustHaveAdapters(ctx, db)(afterSignUp))
+	mux.Handle(a.SignUpVerificationURL, a.MustHaveAdapters(ctx, db, a.SignUpVerificationAdapter())(verifySignUp))
+	mux.Handle(a.LoginURL, a.MustHaveAdapters(ctx, db, a.LoginAdapter())(logIn))
+	mux.Handle(a.RedirectAfterLogin, a.MustHaveAdapters(ctx, db, a.RedirectIfUserNotAuthenticated())(afterLogIn))
+	mux.Handle(a.LogOutURL, a.MustHaveAdapters(ctx, db, a.LogoutAdapter("/"))(logOut))
+	mux.Handle(a.PasswordResetURL, a.MustHaveAdapters(ctx, db, a.PasswordResetAdapter())(passReset))
+	mux.Handle(a.RedirectAfterResetRequest, a.MustHaveAdapters(ctx, db)(passResetSent))
+	mux.Handle(a.PasswordResetRequestURL, a.MustHaveAdapters(ctx, db, a.PasswordResetRequestAdapter())(passResetRequest))
 }
 
 // LoadOrCreateSession adapter loads a session if the request has the correct cookie.
@@ -154,9 +154,8 @@ func (a *HTTPAuth) LoadOrCreateSession() adaptd.Adapter {
 	return func(h http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ses, err := a.sesHandler.ParseSessionFromRequest(r)
-			tx := session.TxFromContext(r.Context())
 			if err != nil {
-				ses = a.sesHandler.CreateSession(tx, "", false)
+				ses = a.sesHandler.CreateSession(r.Context(), "", false)
 				if ses == nil {
 					log.Println("Error creating a session")
 				}
@@ -173,19 +172,18 @@ func (a *HTTPAuth) AttachSessionCookie() adaptd.Adapter {
 	return func(h http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ses := SessionFromContext(r.Context())
-			tx := session.TxFromContext(r.Context())
 			if ses != nil {
 				err := ErrorFromContext(r.Context())
 				if err != nil {
 					ses.AddError(err.Error())
-					if a.sesHandler.UpdateSessionIfValid(tx, ses) != nil {
+					if a.sesHandler.UpdateSessionIfValid(r.Context(), ses) != nil {
 						log.Print("Could not put error on session, destroying session")
-						a.sesHandler.DestroySession(tx, ses)
+						a.sesHandler.DestroySession(r.Context(), ses)
 					}
 				}
-				err = a.sesHandler.AttachCookie(tx, w, ses)
+				err = a.sesHandler.AttachCookie(r.Context(), w, ses)
 				if err == nil {
-					updateUserLastAccess(tx, a.usersTableName, ses.Username())
+					updateUserLastAccess(r.Context(), a.usersTableName, ses.Username())
 				}
 			}
 			h.ServeHTTP(w, r)
@@ -196,11 +194,11 @@ func (a *HTTPAuth) AttachSessionCookie() adaptd.Adapter {
 // MustHaveAdapters are the adapters that we must have for essentially every Handler
 //
 // As of now, they are EnsureHTTPS, PutTxOnContext, LoadOrCreateSession, and AttachSessionCookie (which is at the end)
-func (a *HTTPAuth) MustHaveAdapters(db *sql.DB, otherAdapters ...adaptd.Adapter) adaptd.Adapter {
+func (a *HTTPAuth) MustHaveAdapters(ctx context.Context, db *pgxpool.Pool, otherAdapters ...adaptd.Adapter) adaptd.Adapter {
 	return func(h http.Handler) http.Handler {
 		firstAdapters := []adaptd.Adapter{
 			adaptd.EnsureHTTPS(a.allowXForwardedProto),
-			PutTxOnContext(db),
+			PutTxOnContext(ctx, db),
 			a.LoadOrCreateSession(),
 		}
 		otherAdapters = append(firstAdapters, otherAdapters...)
@@ -296,7 +294,6 @@ func (a *HTTPAuth) CurrentUser(r *http.Request) *User {
 		return nil
 	}
 	user := UserFromContext(r.Context())
-	tx := session.TxFromContext(r.Context())
 	if err != nil {
 		if user != nil {
 			*r = *r.WithContext(NewUserContext(r.Context(), nil))
@@ -308,7 +305,7 @@ func (a *HTTPAuth) CurrentUser(r *http.Request) *User {
 		return user
 	}
 	// If there is a cookie, then for simplicity, we add the user to the Request's context.
-	user = getUserFromDB(tx, a.usersTableName, "username", ses.Username())
+	user = getUserFromDB(r.Context(), a.usersTableName, "username", ses.Username())
 	if user != nil {
 		*r = *r.WithContext(NewUserContext(r.Context(), user))
 	}
@@ -322,15 +319,14 @@ func (a *HTTPAuth) IsCurrentUser(r *http.Request, username string) bool {
 }
 
 // Flashes returns the flashes of the session and updates the database.
-func (a *HTTPAuth) Flashes(tx *sql.Tx, ses *sessions.Session) ([]interface{}, []interface{}) {
-	return a.sesHandler.ReadFlashes(tx, ses)
+func (a *HTTPAuth) Flashes(ctx context.Context, ses *sessions.Session) ([]interface{}, []interface{}) {
+	return a.sesHandler.ReadFlashes(ctx, ses)
 }
 
 func (a *HTTPAuth) logUserOut(w http.ResponseWriter, r *http.Request) bool {
 	ses, err := a.sesHandler.ParseSessionFromRequest(r)
-	tx := session.TxFromContext(r.Context())
 	if ses.IsUserLoggedIn() {
-		a.sesHandler.LogUserOut(tx, ses)
+		a.sesHandler.LogUserOut(r.Context(), ses)
 		log.Printf("%v was successfully logged out\n", ses.Username())
 		ses.AddMessage("You have been successfully logged out")
 	}
@@ -348,9 +344,8 @@ func (a *HTTPAuth) userIsAuthenticated(w http.ResponseWriter, r *http.Request) b
 		}
 		*r = *r.WithContext(NewSessionContext(r.Context(), ses))
 	}
-	tx := session.TxFromContext(r.Context())
 	if ses.IsUserLoggedIn() {
-		user := getUserFromDB(tx, a.usersTableName, "username", ses.Username())
+		user := getUserFromDB(r.Context(), a.usersTableName, "username", ses.Username())
 		*r = *r.WithContext(NewUserContext(r.Context(), user))
 		return true
 	}

@@ -2,11 +2,11 @@ package session
 
 import (
 	"bytes"
+	"context"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
 	"crypto/sha256"
-	"database/sql"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -17,17 +17,20 @@ import (
 	"time"
 
 	"github.com/dadamssolutions/authentic/handlers/session/sessions"
-	"github.com/lib/pq"
+	"github.com/jackc/pgconn"
+	"github.com/jackc/pgerrcode"
+	"github.com/jackc/pgx/v4"
+	"github.com/jackc/pgx/v4/pgxpool"
 )
 
 const (
 	timestampFormat    = "2006-01-02 15:04:05.000 -0700"
 	tableCreation      = "CREATE TABLE IF NOT EXISTS %s (selector char(16), session_hash varchar NOT NULL, user_id varchar(50) NOT NULL DEFAULT '', values text, created timestamp WITH TIME ZONE NOT NULL, expiration timestamp WITH TIME ZONE NOT NULL, persistent boolean NOT NULL, PRIMARY KEY (selector));"
 	dropTable          = "DROP TABLE %s;"
-	insertSession      = "INSERT INTO %s (selector, session_hash, user_id, values, created, expiration, persistent) VALUES(%s, %s, %s, %s, %s, %s, %s);"
-	deleteSession      = "DELETE FROM %s WHERE selector = %s;"
-	getSessionInfo     = "SELECT selector, session_hash, user_id, values, expiration, persistent FROM %s WHERE selector = %s;"
-	updateSession      = "UPDATE %s SET (user_id, expiration, values) = (%s, %s, %s) WHERE selector = %s;"
+	insertSession      = "INSERT INTO %s (selector, session_hash, user_id, values, created, expiration, persistent) VALUES('%s', '%s', '%s', '%s', '%s', '%s', '%s');"
+	deleteSession      = "DELETE FROM %s WHERE selector = '%s';"
+	getSessionInfo     = "SELECT selector, session_hash, user_id, values, expiration, persistent FROM %s WHERE selector = '%s';"
+	updateSession      = "UPDATE %s SET (user_id, expiration, values) = ('%s', '%s', '%s') WHERE selector = '%s';"
 	cleanUpOldSessions = "DELETE FROM %v WHERE (NOT persistent AND created < NOW() - INTERVAL '%v SECONDS') OR (persistent AND expiration < NOW() - INTERVAL '%v SECONDS') RETURNING selector;"
 )
 
@@ -39,7 +42,7 @@ type sesDataAccess struct {
 	lock       *sync.RWMutex
 }
 
-func newDataAccess(db *sql.DB, tableName, cookieName string, secret []byte, sessionTimeout, persistentSessionTimeout time.Duration) (sesDataAccess, error) {
+func newDataAccess(ctx context.Context, db *pgxpool.Pool, tableName, cookieName string, secret []byte, sessionTimeout, persistentSessionTimeout time.Duration) (sesDataAccess, error) {
 	var err error
 	sesAccess := sesDataAccess{tableName, cookieName, nil, nil, &sync.RWMutex{}}
 
@@ -52,7 +55,7 @@ func newDataAccess(db *sql.DB, tableName, cookieName string, secret []byte, sess
 	if err != nil {
 		log.Println("Error creating the cipher for encryption/decryption")
 	}
-	err = sesAccess.createTable(db)
+	err = sesAccess.createTable(ctx, db)
 	if err != nil {
 		log.Printf("Could not create the table in the database: %v\n", err)
 		return sesAccess, err
@@ -100,28 +103,29 @@ func (s sesDataAccess) generateSessionID() string {
 	return s.generateRandomString(sessionIDLength)
 }
 
-func (s sesDataAccess) createTable(db *sql.DB) error {
-	tx, err := db.Begin()
+func (s sesDataAccess) createTable(ctx context.Context, db *pgxpool.Pool) error {
+	tx, err := db.Begin(ctx)
 	if err != nil {
 		return databaseTableCreationError(s.tableName)
 	}
 	// Create the table we need in the database
-	_, err = tx.Exec(fmt.Sprintf(tableCreation, pq.QuoteIdentifier(s.tableName)))
+	_, err = tx.Exec(ctx, fmt.Sprintf(tableCreation, pgx.Identifier{s.tableName}.Sanitize()))
 	if err != nil {
-		if err := tx.Rollback(); err != nil {
+		if err := tx.Rollback(ctx); err != nil {
 			panic(err)
 		}
 		return databaseTableCreationError(s.tableName)
 	}
 	log.Println(s.tableName + " table created")
-	return tx.Commit()
+	return tx.Commit(ctx)
 }
 
-func (s sesDataAccess) cleanUpOldSessions(db *sql.DB, c <-chan time.Time, sessionTimeout, persistentSessionTimeout float64) {
+func (s sesDataAccess) cleanUpOldSessions(db *pgxpool.Pool, c <-chan time.Time, sessionTimeout, persistentSessionTimeout float64) {
 	log.Printf("Waiting to clean old %v...\n", s.tableName)
 	for range c {
 		//log.Printf("Cleaning old %v....\n", s.tableName)
-		tx, err := db.Begin()
+		ctx := context.Background()
+		tx, err := db.Begin(ctx)
 		if err != nil {
 			log.Printf("We have stopped cleaning up old %v\n", s.tableName)
 			log.Println(err)
@@ -129,9 +133,9 @@ func (s sesDataAccess) cleanUpOldSessions(db *sql.DB, c <-chan time.Time, sessio
 		}
 		// Clean up old sessions that are not persistent and are older than maxLifetimeSessionOnly
 		// Also clean up old expired persistent sessions.
-		rows, err := tx.Query(fmt.Sprintf(cleanUpOldSessions, s.tableName, sessionTimeout, persistentSessionTimeout))
+		rows, err := tx.Query(ctx, fmt.Sprintf(cleanUpOldSessions, s.tableName, sessionTimeout, persistentSessionTimeout))
 		if err != nil {
-			if err := tx.Rollback(); err != nil {
+			if err := tx.Rollback(ctx); err != nil {
 				panic(err)
 			}
 			log.Printf("We have stopped cleaning up old %v\n", s.tableName)
@@ -144,31 +148,35 @@ func (s sesDataAccess) cleanUpOldSessions(db *sql.DB, c <-chan time.Time, sessio
 			err = rows.Scan(&selectorDeleted) // #nosec
 			log.Printf("Deleted %v with selector %v\n", s.tableName, selectorDeleted)
 		}
-		err = tx.Commit()
+		err = tx.Commit(ctx)
 		if err != nil {
 			log.Printf("Could not commit delete %v transaction", s.tableName)
+			err = tx.Rollback(ctx)
+			if err != nil {
+				log.Printf("Error rolling back failed deletion transaction: %v", err)
+			}
 		}
 	}
 }
 
 // dropTable is used in testing to clear the database each time.
-func (s sesDataAccess) dropTable(db *sql.DB) error {
-	tx, err := db.Begin()
+func (s sesDataAccess) dropTable(ctx context.Context, db *pgxpool.Pool) error {
+	tx, err := db.Begin(ctx)
 	if err != nil {
 		return databaseTableCreationError(s.tableName)
 	}
 	// Drop the sessions table
-	_, err = tx.Exec(fmt.Sprintf(dropTable, pq.QuoteIdentifier(s.tableName)))
+	_, err = tx.Exec(ctx, fmt.Sprintf(dropTable, pgx.Identifier{s.tableName}.Sanitize()))
 	if err != nil {
-		if err := tx.Rollback(); err != nil {
+		if err := tx.Rollback(ctx); err != nil {
 			panic(err)
 		}
 		return databaseTableCreationError(s.tableName)
 	}
-	return tx.Commit()
+	return tx.Commit(ctx)
 }
 
-func (s sesDataAccess) createSession(tx *sql.Tx, username string, maxLifetime time.Duration, persistent bool) *sessions.Session {
+func (s sesDataAccess) createSession(ctx context.Context, tx pgx.Tx, username string, maxLifetime time.Duration, persistent bool) *sessions.Session {
 	if !persistent {
 		maxLifetime = 0
 	}
@@ -181,20 +189,20 @@ func (s sesDataAccess) createSession(tx *sql.Tx, username string, maxLifetime ti
 		selectorID, sessionID = s.generateSelectorID(), s.generateSessionID()
 		ses = sessions.NewSession(selectorID, sessionID, username, s.encrypt(username, selectorID), s.cookieName, maxLifetime)
 		queryString := fmt.Sprintf(insertSession,
-			pq.QuoteIdentifier(s.tableName),
-			pq.QuoteLiteral(ses.SelectorID()),
-			pq.QuoteLiteral(s.hashString(ses.HashPayload())),
-			pq.QuoteLiteral(ses.Username()),
-			pq.QuoteLiteral(ses.ValuesAsText()),
-			pq.QuoteLiteral(time.Now().Format(timestampFormat)),
-			pq.QuoteLiteral(ses.ExpireTime().Format(timestampFormat)),
-			pq.QuoteLiteral(strconv.FormatBool(persistent)))
-		_, err = tx.Exec(queryString)
+			pgx.Identifier{s.tableName}.Sanitize(),
+			ses.SelectorID(),
+			s.hashString(ses.HashPayload()),
+			ses.Username(),
+			ses.ValuesAsText(),
+			time.Now().Format(timestampFormat),
+			ses.ExpireTime().Format(timestampFormat),
+			strconv.FormatBool(persistent))
+		_, err = tx.Exec(ctx, queryString)
 		if err != nil {
-			if e, ok := err.(pq.Error); ok {
+			if e, ok := err.(*pgconn.PgError); ok {
 				// This error code means that the uniqueness of ids has been violated
 				// We try again in this case.
-				if string(e.Code) == "23505" {
+				if string(e.Code) == pgerrcode.UniqueViolation {
 					continue
 				}
 			}
@@ -209,16 +217,14 @@ func (s sesDataAccess) createSession(tx *sql.Tx, username string, maxLifetime ti
 
 // getSessionInfo pulls the session out of the database.
 // No validation is done here. That must be done elsewhere.
-func (s sesDataAccess) getSessionInfo(tx *sql.Tx, selectorID, sessionID, encryptedUsername string, maxLifetime time.Duration) (*sessions.Session, error) {
+func (s sesDataAccess) getSessionInfo(ctx context.Context, tx pgx.Tx, selectorID, sessionID, encryptedUsername string, maxLifetime time.Duration) (*sessions.Session, error) {
 	var dbHash, values, username string
 	var expires time.Time
 	var persistent bool
 	var ses *sessions.Session
 
-	queryString := fmt.Sprintf(getSessionInfo,
-		pq.QuoteIdentifier(s.tableName),
-		pq.QuoteLiteral(selectorID))
-	err := tx.QueryRow(queryString).Scan(&selectorID, &dbHash, &username, &values, &expires, &persistent)
+	queryString := fmt.Sprintf(getSessionInfo, pgx.Identifier{s.tableName}.Sanitize(), selectorID)
+	err := tx.QueryRow(ctx, queryString).Scan(&selectorID, &dbHash, &username, &values, &expires, &persistent)
 	if err != nil {
 		return nil, err
 	}
@@ -239,11 +245,9 @@ func (s sesDataAccess) getSessionInfo(tx *sql.Tx, selectorID, sessionID, encrypt
 	return ses, err
 }
 
-func (s sesDataAccess) destroySession(tx *sql.Tx, ses *sessions.Session) {
-	queryString := fmt.Sprintf(deleteSession,
-		pq.QuoteIdentifier(s.tableName),
-		pq.QuoteLiteral(ses.SelectorID()))
-	_, err := tx.Exec(queryString)
+func (s sesDataAccess) destroySession(ctx context.Context, tx pgx.Tx, ses *sessions.Session) {
+	queryString := fmt.Sprintf(deleteSession, pgx.Identifier{s.tableName}.Sanitize(), ses.SelectorID())
+	_, err := tx.Exec(ctx, queryString)
 	if err != nil {
 		log.Printf("Could not delete %v: %v", s.tableName, err)
 	}
@@ -251,14 +255,9 @@ func (s sesDataAccess) destroySession(tx *sql.Tx, ses *sessions.Session) {
 }
 
 // updateSession indicates that the session is active and the expiration needs to be updated.
-func (s sesDataAccess) updateSession(tx *sql.Tx, ses *sessions.Session, maxLifetime time.Duration) {
-	queryString := fmt.Sprintf(updateSession,
-		pq.QuoteIdentifier(s.tableName),
-		pq.QuoteLiteral(ses.Username()),
-		pq.QuoteLiteral(ses.ExpireTime().Add(maxLifetime).Format(timestampFormat)),
-		pq.QuoteLiteral(ses.ValuesAsText()),
-		pq.QuoteLiteral(ses.SelectorID()))
-	_, err := tx.Exec(queryString)
+func (s sesDataAccess) updateSession(ctx context.Context, tx pgx.Tx, ses *sessions.Session, maxLifetime time.Duration) {
+	queryString := fmt.Sprintf(updateSession, pgx.Identifier{s.tableName}.Sanitize(), ses.Username(), ses.ExpireTime().Add(maxLifetime).Format(timestampFormat), ses.ValuesAsText(), ses.SelectorID())
+	_, err := tx.Exec(ctx, queryString)
 	if err != nil {
 		panic(err)
 	}
@@ -267,15 +266,15 @@ func (s sesDataAccess) updateSession(tx *sql.Tx, ses *sessions.Session, maxLifet
 
 // validateSession pulls the info for a session out of the database and checks that the session is valid
 // i.e. neither destroyed nor expired, username and encryptedUsername match
-func (s sesDataAccess) validateSession(tx *sql.Tx, ses *sessions.Session, maxLifetime time.Duration) error {
-	dbSession, err := s.getSessionInfo(tx, ses.SelectorID(), ses.SessionID(), ses.EncryptedUsername(), maxLifetime)
+func (s sesDataAccess) validateSession(ctx context.Context, tx pgx.Tx, ses *sessions.Session, maxLifetime time.Duration) error {
+	dbSession, err := s.getSessionInfo(ctx, tx, ses.SelectorID(), ses.SessionID(), ses.EncryptedUsername(), maxLifetime)
 	if err != nil || !ses.Equals(dbSession, s.hashString) {
-		s.destroySession(tx, ses)
+		s.destroySession(ctx, tx, ses)
 		return sessionNotInDatabaseError(ses.SelectorID(), s.tableName)
 	}
 
 	if !ses.IsValid() {
-		s.destroySession(tx, ses)
+		s.destroySession(ctx, tx, ses)
 		log.Printf("%v %v is not valid so we destroyed it", s.tableName, ses.SelectorID())
 		return sessionExpiredError(ses.SelectorID(), s.tableName)
 	}
@@ -284,20 +283,20 @@ func (s sesDataAccess) validateSession(tx *sql.Tx, ses *sessions.Session, maxLif
 
 // logUserIntoSession takes care of logging a user into a session.
 // This includes things like changing the encrypted username data.
-func (s sesDataAccess) logUserIntoSession(tx *sql.Tx, ses *sessions.Session, username string, maxLifetime time.Duration) {
+func (s sesDataAccess) logUserIntoSession(ctx context.Context, tx pgx.Tx, ses *sessions.Session, username string, maxLifetime time.Duration) {
 	err := ses.LogUserIn(username, s.encrypt(username, ses.SelectorID()))
 	if err != nil {
 		log.Printf("Could not log user into session: %v", err)
 	}
-	s.updateSession(tx, ses, maxLifetime)
+	s.updateSession(ctx, tx, ses, maxLifetime)
 }
 
 // logUserOut takes care of logging a user into a session.
 // This includes things like changing the encrypted username data.
-func (s sesDataAccess) logUserOut(tx *sql.Tx, ses *sessions.Session, maxLifetime time.Duration) {
+func (s sesDataAccess) logUserOut(ctx context.Context, tx pgx.Tx, ses *sessions.Session, maxLifetime time.Duration) {
 	ses.LogUserOut()
-	s.destroySession(tx, ses)
-	newSes := s.createSession(tx, "", maxLifetime, false)
+	s.destroySession(ctx, tx, ses)
+	newSes := s.createSession(ctx, tx, "", maxLifetime, false)
 	*ses = *newSes
 }
 

@@ -2,7 +2,7 @@ package csrf
 
 import (
 	"bytes"
-	"database/sql"
+	"context"
 	"log"
 	"net/http"
 	"net/http/httptest"
@@ -11,14 +11,16 @@ import (
 	"time"
 
 	"github.com/dadamssolutions/authentic/handlers/session"
+	"github.com/jackc/pgx/v4/pgxpool"
 )
 
 var csrfHand *Handler
-var db, _ = sql.Open("postgres", "postgres://authentic:authentic@db:5432/authentic_csrfs?sslmode=disable")
+var ctx = context.Background()
+var db, _ = pgxpool.Connect(ctx, "postgres://authentic:authentic@db:5432/authentic_csrfs?sslmode=disable")
 
 func TestTokenGeneration(t *testing.T) {
 	w := httptest.NewRecorder()
-	tx, _ := db.Begin()
+	tx, _ := db.Begin(ctx)
 	// Create a request so we can validate the token which destroys it as well
 	req, _ := http.NewRequest("POST", "", nil)
 	req = req.WithContext(session.NewTxContext(req.Context(), tx))
@@ -29,12 +31,12 @@ func TestTokenGeneration(t *testing.T) {
 
 	req.AddCookie(w.Result().Cookies()[0])
 	csrfHand.ValidToken(req)
-	tx.Commit()
+	tx.Commit(ctx)
 }
 
 func TestTokenValidation(t *testing.T) {
 	w := httptest.NewRecorder()
-	tx, _ := db.Begin()
+	tx, _ := db.Begin(ctx)
 	req, _ := http.NewRequest("POST", "", nil)
 	req = req.WithContext(session.NewTxContext(req.Context(), tx))
 	csrfHand.GenerateNewToken(w, req)
@@ -46,7 +48,7 @@ func TestTokenValidation(t *testing.T) {
 	if err := csrfHand.ValidToken(req); err == nil {
 		t.Error("Token should not be valid after it is validated")
 	}
-	tx.Commit()
+	tx.Commit(ctx)
 }
 
 func TestMain(m *testing.M) {
@@ -54,8 +56,8 @@ func TestMain(m *testing.M) {
 
 	// Wait for the database to be ready.
 	for triesLeft > 0 {
-		if tx, err := db.Begin(); err == nil {
-			tx.Rollback()
+		if tx, err := db.Begin(ctx); err == nil {
+			tx.Rollback(ctx)
 			break
 		}
 		log.Printf("Database not ready, %d tries left", triesLeft)
@@ -63,7 +65,7 @@ func TestMain(m *testing.M) {
 		time.Sleep(10 * time.Second)
 	}
 	log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
-	csrfHand = NewHandler(db, time.Minute, bytes.Repeat([]byte("d"), 16))
+	csrfHand = NewHandler(ctx, db, time.Minute, bytes.Repeat([]byte("d"), 16))
 	num := m.Run()
 	os.Exit(num)
 }

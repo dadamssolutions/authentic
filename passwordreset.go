@@ -13,7 +13,6 @@ import (
 
 	"github.com/dadamssolutions/adaptd"
 	"github.com/dadamssolutions/authentic/handlers/passreset"
-	"github.com/dadamssolutions/authentic/handlers/session"
 )
 
 // PasswordResetRequestAdapter handles the GET and POST requests for requesting password reset.
@@ -55,8 +54,7 @@ func (a *HTTPAuth) PasswordResetAdapter() adaptd.Adapter {
 	// A check function that returns err == nil if the user is logged in or the password reset token is valid.
 	f := func(w http.ResponseWriter, r *http.Request) error {
 		username, err := a.passResetHandler.ValidToken(r)
-		tx := session.TxFromContext(r.Context())
-		u := getUserFromDB(tx, a.usersTableName, "username", username)
+		u := getUserFromDB(r.Context(), a.usersTableName, "username", username)
 		*r = *r.WithContext(NewUserContext(r.Context(), u))
 		if !a.userIsAuthenticated(w, r) && err != nil {
 			log.Printf("Cannot generate a token for %v\n", username)
@@ -69,16 +67,15 @@ func (a *HTTPAuth) PasswordResetAdapter() adaptd.Adapter {
 	g := func(w http.ResponseWriter, r *http.Request) error {
 		var ses *passreset.Token
 		u := UserFromContext(r.Context())
-		tx := session.TxFromContext(r.Context())
 		if u != nil {
-			ses = a.passResetHandler.GenerateNewToken(tx, u.Username)
+			ses = a.passResetHandler.GenerateNewToken(r.Context(), u.Username)
 		}
 		if ses == nil {
 			log.Printf("Cannot attach token for %v\n", u.Username)
 			return errors.New("Cannot attach token")
 		}
 
-		return a.passResetHandler.AttachCookie(tx, w, ses.Session)
+		return a.passResetHandler.AttachCookie(r.Context(), w, ses.Session)
 	}
 
 	logOnError := "CSRF token not valid for password reset request"
@@ -108,8 +105,7 @@ func (a *HTTPAuth) passwordReset(w http.ResponseWriter, r *http.Request) {
 		*r = *r.WithContext(NewErrorContext(r.Context(), err))
 		return
 	}
-	tx := session.TxFromContext(r.Context())
-	updateUserPassword(tx, a.usersTableName, username, base64.RawURLEncoding.EncodeToString(passHash))
+	updateUserPassword(r.Context(), a.usersTableName, username, base64.RawURLEncoding.EncodeToString(passHash))
 	if err != nil {
 		*r = *r.WithContext(NewErrorContext(r.Context(), err))
 	} else {
@@ -121,7 +117,6 @@ func (a *HTTPAuth) passwordReset(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *HTTPAuth) passwordResetRequest(w http.ResponseWriter, r *http.Request) {
-	tx := session.TxFromContext(r.Context())
 	addr, err := mail.ParseAddress(r.PostFormValue("email"))
 	if err != nil {
 		*r = *r.WithContext(NewErrorContext(r.Context(), fmt.Errorf("Email %v is not valid", r.PostFormValue("email"))))
@@ -137,12 +132,12 @@ func (a *HTTPAuth) passwordResetRequest(w http.ResponseWriter, r *http.Request) 
 	} else if redirectPath == "" {
 		redirectPath = "/"
 	}
-	user := getUserFromDB(tx, a.usersTableName, "email", strings.ToLower(addr.Address))
+	user := getUserFromDB(r.Context(), a.usersTableName, "email", strings.ToLower(addr.Address))
 	if user == nil {
 		*r = *r.WithContext(NewErrorContext(r.Context(), fmt.Errorf("Email %v does not exist", addr.Address)))
 		return
 	}
-	token := a.passResetHandler.GenerateNewToken(tx, user.Username)
+	token := a.passResetHandler.GenerateNewToken(r.Context(), user.Username)
 
 	data := make(map[string]interface{})
 	data["Link"] = a.domainName + a.PasswordResetURL + "?" + token.Query()

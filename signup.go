@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/dadamssolutions/adaptd"
-	"github.com/dadamssolutions/authentic/handlers/session"
 )
 
 // SignUpAdapter handles the sign up GET and POST requests.
@@ -43,8 +42,7 @@ func (a *HTTPAuth) SignUpVerificationAdapter() adaptd.Adapter {
 			return fmt.Errorf("Invalid sign-up verification token")
 		}
 
-		tx := session.TxFromContext(r.Context())
-		u := getUserFromDB(tx, a.usersTableName, "username", username)
+		u := getUserFromDB(r.Context(), a.usersTableName, "username", username)
 		*r = *r.WithContext(NewUserContext(r.Context(), u))
 		return nil
 	}
@@ -90,9 +88,7 @@ func (a *HTTPAuth) signUp(w http.ResponseWriter, r *http.Request) {
 	}
 	user := &User{FirstName: firstName, LastName: lastName, Username: strings.ToLower(username), Email: strings.ToLower(addr.Address), passHash: hashedPassword, validated: false}
 
-	tx := session.TxFromContext(r.Context())
-
-	if usernameExists, emailExists := usernameOrEmailExists(tx, a.usersTableName, user); usernameExists {
+	if usernameExists, emailExists := usernameOrEmailExists(r.Context(), a.usersTableName, user); usernameExists {
 		log.Printf("Username %v exists\n", user.Username)
 		*r = *r.WithContext(NewErrorContext(
 			r.Context(),
@@ -109,7 +105,7 @@ func (a *HTTPAuth) signUp(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get the reset token and send the message.
-	token := a.passResetHandler.GenerateNewToken(tx, user.Username)
+	token := a.passResetHandler.GenerateNewToken(r.Context(), user.Username)
 	data := make(map[string]interface{})
 	data["Link"] = "https://" + a.domainName + a.SignUpVerificationURL + "?" + token.Query()
 	err = a.emailHandler.SendMessage(a.SignUpEmailTemplate, "Welcome!", data, user)
@@ -121,7 +117,7 @@ func (a *HTTPAuth) signUp(w http.ResponseWriter, r *http.Request) {
 		))
 		return
 	}
-	addUserToDatabase(tx, a.usersTableName, user)
+	addUserToDatabase(r.Context(), a.usersTableName, user)
 }
 
 func (a *HTTPAuth) verifySignUp(w http.ResponseWriter, r *http.Request) error {
@@ -131,8 +127,7 @@ func (a *HTTPAuth) verifySignUp(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	tx := session.TxFromContext(r.Context())
-	validateUser(tx, a.usersTableName, user)
+	validateUser(r.Context(), a.usersTableName, user)
 
 	return nil
 }

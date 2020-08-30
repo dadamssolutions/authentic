@@ -17,7 +17,7 @@ func TestUserLogInHandlerNotLoggedIn(t *testing.T) {
 		t.Error(err)
 	}
 
-	ts := httptest.NewTLSServer(a.MustHaveAdapters(db, a.LoginAdapter())(testHand))
+	ts := httptest.NewTLSServer(a.MustHaveAdapters(ctx, db, a.LoginAdapter())(testHand))
 	defer ts.Close()
 	ts.URL = ts.URL + "/login/"
 	client := ts.Client()
@@ -43,7 +43,7 @@ func TestUserLogInHandlerLoggingIn(t *testing.T) {
 	}
 	w := httptest.NewRecorder()
 
-	ts := httptest.NewTLSServer(a.MustHaveAdapters(db, a.LoginAdapter())(testHand))
+	ts := httptest.NewTLSServer(a.MustHaveAdapters(ctx, db, a.LoginAdapter())(testHand))
 	defer ts.Close()
 	ts.URL = ts.URL + "/login/"
 	client := ts.Client()
@@ -55,12 +55,12 @@ func TestUserLogInHandlerLoggingIn(t *testing.T) {
 	form.Set("remember", "false")
 
 	req, _ := http.NewRequest(http.MethodPost, ts.URL, strings.NewReader(form.Encode()))
-	tx, _ := db.Begin()
+	tx, _ := db.Begin(ctx)
 	req = req.WithContext(session.NewTxContext(req.Context(), tx))
 	req.Header.Set("Content-type", "application/x-www-form-urlencoded")
 	a.csrfHandler.GenerateNewToken(w, req)
 	req.AddCookie(w.Result().Cookies()[0])
-	tx.Commit()
+	tx.Commit(ctx)
 
 	// POST request should log user in
 	resp, err := client.Do(req)
@@ -72,13 +72,14 @@ func TestUserLogInHandlerLoggingIn(t *testing.T) {
 		t.Error("Should be redirected after a successful login")
 	}
 
-	tx, _ = db.Begin()
-	ses, _ := a.sesHandler.ParseSessionCookie(tx, resp.Cookies()[0])
+	tx, _ = db.Begin(ctx)
+	c := session.NewTxContext(ctx, tx)
+	ses, _ := a.sesHandler.ParseSessionCookie(c, resp.Cookies()[0])
 	if ses == nil || ses.IsPersistent() || ses.Username() != "dadams" || !ses.IsUserLoggedIn() {
 		t.Error("The cookie on a login response is not valid")
 	}
 	resp.Body.Close()
-	tx.Commit()
+	tx.Commit(ctx)
 
 	// Now user should be redirected when visiting login page
 	req, _ = http.NewRequest(http.MethodGet, ts.URL, nil)
@@ -97,12 +98,13 @@ func TestUserLogInHandlerLoggingIn(t *testing.T) {
 	}
 	resp.Body.Close()
 
-	tx, _ = db.Begin()
+	tx, _ = db.Begin(ctx)
+	c = session.NewTxContext(ctx, tx)
 	// Log user out
-	ses, _ = a.sesHandler.ParseSessionCookie(tx, resp.Cookies()[0])
+	ses, _ = a.sesHandler.ParseSessionCookie(c, resp.Cookies()[0])
 	cookie := ses.SessionCookie()
-	a.sesHandler.DestroySession(tx, ses)
-	tx.Commit()
+	a.sesHandler.DestroySession(c, ses)
+	tx.Commit(ctx)
 
 	// Now user should be asked to login, even with expired session cookie attached
 	req, _ = http.NewRequest("GET", ts.URL, nil)
@@ -127,7 +129,7 @@ func TestUserLogInHandlerBadInfo(t *testing.T) {
 	}
 	w := httptest.NewRecorder()
 
-	ts := httptest.NewTLSServer(a.MustHaveAdapters(db, a.LoginAdapter())(testHand))
+	ts := httptest.NewTLSServer(a.MustHaveAdapters(ctx, db, a.LoginAdapter())(testHand))
 	defer ts.Close()
 	ts.URL = ts.URL + "/login/"
 	client := ts.Client()
@@ -138,20 +140,21 @@ func TestUserLogInHandlerBadInfo(t *testing.T) {
 	form.Set("password", strings.Repeat("e", 64))
 	form.Set("remember", "false")
 
-	tx, _ := db.Begin()
+	tx, _ := db.Begin(ctx)
 	req, _ := http.NewRequest(http.MethodPost, ts.URL, strings.NewReader(form.Encode()))
 	req = req.WithContext(session.NewTxContext(req.Context(), tx))
 	req.Header.Set("Content-type", "application/x-www-form-urlencoded")
 	a.csrfHandler.GenerateNewToken(w, req)
 	req.AddCookie(w.Result().Cookies()[0])
-	tx.Commit()
+	tx.Commit(ctx)
 
 	// POST request should not log user in with wrong password
 	resp, err := client.Do(req)
 	loc, _ := resp.Location()
-	tx, _ = db.Begin()
-	ses, _ := a.sesHandler.ParseSessionCookie(tx, resp.Cookies()[0])
-	tx.Commit()
+	tx, _ = db.Begin(ctx)
+	c := session.NewTxContext(ctx, tx)
+	ses, _ := a.sesHandler.ParseSessionCookie(c, resp.Cookies()[0])
+	tx.Commit(ctx)
 	_, errs := ses.Flashes()
 	if err == nil || len(resp.Cookies()) != 1 || loc.Path != a.LoginURL || ses.IsUserLoggedIn() || len(errs) != 1 {
 		log.Println(resp.Status)
@@ -163,13 +166,13 @@ func TestUserLogInHandlerBadInfo(t *testing.T) {
 
 	w = httptest.NewRecorder()
 	form.Set("username", "nadams")
-	tx, _ = db.Begin()
+	tx, _ = db.Begin(ctx)
 	req, _ = http.NewRequest(http.MethodPost, ts.URL, strings.NewReader(form.Encode()))
 	req = req.WithContext(session.NewTxContext(req.Context(), tx))
 	req.Header.Set("Content-type", "application/x-www-form-urlencoded")
 	a.csrfHandler.GenerateNewToken(w, req)
 	req.AddCookie(w.Result().Cookies()[0])
-	tx.Commit()
+	tx.Commit(ctx)
 
 	// POST request should not log user in
 	resp, _ = client.Do(req)
@@ -188,7 +191,7 @@ func TestUserLogInHandlerPersistent(t *testing.T) {
 		t.Error(err)
 	}
 	w := httptest.NewRecorder()
-	ts := httptest.NewTLSServer(a.MustHaveAdapters(db, a.LoginAdapter())(testHand))
+	ts := httptest.NewTLSServer(a.MustHaveAdapters(ctx, db, a.LoginAdapter())(testHand))
 	defer ts.Close()
 	ts.URL = ts.URL + "/login/"
 	client := ts.Client()
@@ -200,12 +203,12 @@ func TestUserLogInHandlerPersistent(t *testing.T) {
 	form.Set("remember", "true")
 
 	req, _ := http.NewRequest(http.MethodPost, ts.URL, strings.NewReader(form.Encode()))
-	tx, _ := db.Begin()
+	tx, _ := db.Begin(ctx)
 	req = req.WithContext(session.NewTxContext(req.Context(), tx))
 	req.Header.Set("Content-type", "application/x-www-form-urlencoded")
 	a.csrfHandler.GenerateNewToken(w, req)
 	req.AddCookie(w.Result().Cookies()[0])
-	tx.Commit()
+	tx.Commit(ctx)
 
 	// POST request should log user in
 	resp, err := client.Do(req)
@@ -213,15 +216,16 @@ func TestUserLogInHandlerPersistent(t *testing.T) {
 		t.Error("Should be redirected after a successful login")
 	}
 
-	tx, _ = db.Begin()
-	ses, err := a.sesHandler.ParseSessionCookie(tx, resp.Cookies()[0])
+	tx, _ = db.Begin(ctx)
+	c := session.NewTxContext(ctx, tx)
+	ses, err := a.sesHandler.ParseSessionCookie(c, resp.Cookies()[0])
 	if err != nil || !ses.IsPersistent() {
 		t.Error("Session created should be persistent with 'Remember me'")
 	}
 	resp.Body.Close()
 	cookie := ses.SessionCookie()
-	a.sesHandler.DestroySession(tx, ses)
-	tx.Commit()
+	a.sesHandler.DestroySession(c, ses)
+	tx.Commit(ctx)
 
 	// Now user should be asked to login, even with expired session cookie attached
 	req, _ = http.NewRequest("GET", ts.URL, nil)
@@ -245,7 +249,7 @@ func TestUserLogInHandlerBadPersistent(t *testing.T) {
 	}
 	w := httptest.NewRecorder()
 
-	ts := httptest.NewTLSServer(a.MustHaveAdapters(db, a.LoginAdapter())(testHand))
+	ts := httptest.NewTLSServer(a.MustHaveAdapters(ctx, db, a.LoginAdapter())(testHand))
 	defer ts.Close()
 	ts.URL = ts.URL + "/login/"
 	client := ts.Client()
@@ -257,12 +261,12 @@ func TestUserLogInHandlerBadPersistent(t *testing.T) {
 	form.Set("remember", "yes")
 
 	req, _ := http.NewRequest(http.MethodPost, ts.URL, strings.NewReader(form.Encode()))
-	tx, _ := db.Begin()
+	tx, _ := db.Begin(ctx)
 	req = req.WithContext(session.NewTxContext(req.Context(), tx))
 	req.Header.Set("Content-type", "application/x-www-form-urlencoded")
 	a.csrfHandler.GenerateNewToken(w, req)
 	req.AddCookie(w.Result().Cookies()[0])
-	tx.Commit()
+	tx.Commit(ctx)
 
 	// POST request should log user in
 	resp, err := client.Do(req)
@@ -270,14 +274,15 @@ func TestUserLogInHandlerBadPersistent(t *testing.T) {
 		t.Error("Should be redirected after a successful login")
 	}
 
-	tx, _ = db.Begin()
-	ses, err := a.sesHandler.ParseSessionCookie(tx, resp.Cookies()[0])
+	tx, _ = db.Begin(ctx)
+	c := session.NewTxContext(ctx, tx)
+	ses, err := a.sesHandler.ParseSessionCookie(c, resp.Cookies()[0])
 	if err != nil || ses.IsPersistent() {
 		t.Error("Session created should not be persistent with bad remember value")
 	}
 
 	resp.Body.Close()
-	tx.Commit()
+	tx.Commit(ctx)
 	removeTestUserFromDatabase()
 }
 
@@ -287,7 +292,7 @@ func TestUserLogInHandlerNoCSRF(t *testing.T) {
 		t.Error(err)
 	}
 
-	ts := httptest.NewTLSServer(a.MustHaveAdapters(db, a.LoginAdapter())(testHand))
+	ts := httptest.NewTLSServer(a.MustHaveAdapters(ctx, db, a.LoginAdapter())(testHand))
 	defer ts.Close()
 	ts.URL = ts.URL + "/login/"
 	client := ts.Client()
@@ -324,7 +329,7 @@ func TestUserNotValidatedCannotLogIn(t *testing.T) {
 	}
 	w := httptest.NewRecorder()
 
-	ts := httptest.NewTLSServer(a.MustHaveAdapters(db, a.LoginAdapter())(testHand))
+	ts := httptest.NewTLSServer(a.MustHaveAdapters(ctx, db, a.LoginAdapter())(testHand))
 	defer ts.Close()
 	client := ts.Client()
 	client.CheckRedirect = checkRedirect
@@ -335,17 +340,17 @@ func TestUserNotValidatedCannotLogIn(t *testing.T) {
 	form.Set("remember", "true")
 
 	req, _ := http.NewRequest(http.MethodPost, ts.URL, strings.NewReader(form.Encode()))
-	tx, _ := db.Begin()
+	tx, _ := db.Begin(ctx)
 	req = req.WithContext(session.NewTxContext(req.Context(), tx))
 	req.Header.Set("Content-type", "application/x-www-form-urlencoded")
 	a.csrfHandler.GenerateNewToken(w, req)
 	req.AddCookie(w.Result().Cookies()[0])
-	tx.Commit()
+	tx.Commit(ctx)
 
-	tx, _ = db.Begin()
+	tx, _ = db.Begin(ctx)
 	// POST request should log user in
 	resp, err := client.Do(req)
-	ses, _ := a.sesHandler.ParseSessionCookie(tx, resp.Cookies()[0])
+	ses, _ := a.sesHandler.ParseSessionCookie(session.NewTxContext(ctx, tx), resp.Cookies()[0])
 	if err == nil || ses == nil || ses.IsUserLoggedIn() || resp.StatusCode != http.StatusSeeOther {
 		log.Println(err)
 		log.Println(ses)
@@ -354,12 +359,12 @@ func TestUserNotValidatedCannotLogIn(t *testing.T) {
 	}
 
 	resp.Body.Close()
-	tx.Commit()
+	tx.Commit(ctx)
 	removeTestUserFromDatabase()
 }
 
 func TestUserLogInHandlerRedirecting(t *testing.T) {
-	ts := httptest.NewTLSServer(a.MustHaveAdapters(db, a.RedirectIfUserNotAuthenticated())(testHand))
+	ts := httptest.NewTLSServer(a.MustHaveAdapters(ctx, db, a.RedirectIfUserNotAuthenticated())(testHand))
 	defer ts.Close()
 	ts.URL = ts.URL + "/user/"
 	client := ts.Client()
@@ -387,7 +392,7 @@ func TestUserLogInHandlerFailedLoginKeepsQuery(t *testing.T) {
 	}
 	w := httptest.NewRecorder()
 
-	ts := httptest.NewTLSServer(a.MustHaveAdapters(db, a.LoginAdapter())(testHand))
+	ts := httptest.NewTLSServer(a.MustHaveAdapters(ctx, db, a.LoginAdapter())(testHand))
 	defer ts.Close()
 	ts.URL = ts.URL + "/login/?redirect=" + url.QueryEscape("/user/")
 	client := ts.Client()
@@ -399,18 +404,18 @@ func TestUserLogInHandlerFailedLoginKeepsQuery(t *testing.T) {
 	form.Set("remember", "false")
 
 	req, _ := http.NewRequest(http.MethodPost, ts.URL, strings.NewReader(form.Encode()))
-	tx, _ := db.Begin()
+	tx, _ := db.Begin(ctx)
 	req = req.WithContext(session.NewTxContext(req.Context(), tx))
 	req.Header.Set("Content-type", "application/x-www-form-urlencoded")
 	a.csrfHandler.GenerateNewToken(w, req)
 	req.AddCookie(w.Result().Cookies()[0])
-	tx.Commit()
+	tx.Commit(ctx)
 
-	tx, _ = db.Begin()
+	tx, _ = db.Begin(ctx)
 	// POST request should not log user in with wrong password
 	resp, err := client.Do(req)
 	loc, _ := resp.Location()
-	ses, _ := a.sesHandler.ParseSessionCookie(tx, resp.Cookies()[0])
+	ses, _ := a.sesHandler.ParseSessionCookie(session.NewTxContext(ctx, tx), resp.Cookies()[0])
 	_, errs := ses.Flashes()
 	if err == nil || len(resp.Cookies()) != 1 || loc.Path != a.LoginURL || ses.IsUserLoggedIn() || len(errs) != 1 || loc.Query().Get("redirect") != "/user/" {
 		log.Println(resp.Status)
@@ -420,7 +425,7 @@ func TestUserLogInHandlerFailedLoginKeepsQuery(t *testing.T) {
 	}
 
 	resp.Body.Close()
-	tx.Commit()
+	tx.Commit(ctx)
 	removeTestUserFromDatabase()
 }
 
@@ -431,7 +436,7 @@ func TestUserLogInHandlerRedirectWithQuery(t *testing.T) {
 	}
 	w := httptest.NewRecorder()
 
-	ts := httptest.NewTLSServer(a.MustHaveAdapters(db, a.LoginAdapter())(testHand))
+	ts := httptest.NewTLSServer(a.MustHaveAdapters(ctx, db, a.LoginAdapter())(testHand))
 	defer ts.Close()
 	ts.URL = ts.URL + "/login/?redirect=" + url.QueryEscape("/redirect/after/login/")
 	client := ts.Client()
@@ -443,12 +448,12 @@ func TestUserLogInHandlerRedirectWithQuery(t *testing.T) {
 	form.Set("remember", "false")
 
 	req, _ := http.NewRequest(http.MethodPost, ts.URL, strings.NewReader(form.Encode()))
-	tx, _ := db.Begin()
+	tx, _ := db.Begin(ctx)
 	req = req.WithContext(session.NewTxContext(req.Context(), tx))
 	req.Header.Set("Content-type", "application/x-www-form-urlencoded")
 	a.csrfHandler.GenerateNewToken(w, req)
 	req.AddCookie(w.Result().Cookies()[0])
-	tx.Commit()
+	tx.Commit(ctx)
 
 	// POST request should log user in
 	resp, err := client.Do(req)
@@ -460,13 +465,13 @@ func TestUserLogInHandlerRedirectWithQuery(t *testing.T) {
 		t.Error("Should be redirected to redirect query after a successful login")
 	}
 
-	tx, _ = db.Begin()
-	ses, _ := a.sesHandler.ParseSessionCookie(tx, resp.Cookies()[0])
+	tx, _ = db.Begin(ctx)
+	ses, _ := a.sesHandler.ParseSessionCookie(session.NewTxContext(ctx, tx), resp.Cookies()[0])
 	if ses == nil || ses.IsPersistent() || ses.Username() != "dadams" || !ses.IsUserLoggedIn() {
 		t.Error("The cookie on a login response is not valid")
 	}
 
 	resp.Body.Close()
-	tx.Commit()
+	tx.Commit(ctx)
 	removeTestUserFromDatabase()
 }

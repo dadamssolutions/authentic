@@ -102,6 +102,7 @@ func SendMailSSL(addr string, auth smtp.Auth, username string, recpts []string, 
 	tlsconfig := &tls.Config{
 		InsecureSkipVerify: false,
 		ServerName:         host,
+		MinVersion:         tls.VersionTLS12,
 	}
 
 	conn, err := tls.Dial("tcp", addr, tlsconfig)

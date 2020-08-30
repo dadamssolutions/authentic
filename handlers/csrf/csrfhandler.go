@@ -6,13 +6,14 @@ The tokens are attached as cookies to the request and are good for a single requ
 package csrf
 
 import (
-	"database/sql"
+	"context"
 	"fmt"
 	"log"
 	"net/http"
 	"time"
 
 	"github.com/dadamssolutions/authentic/handlers/session"
+	"github.com/jackc/pgx/v4/pgxpool"
 )
 
 const (
@@ -26,8 +27,8 @@ type Handler struct {
 }
 
 // NewHandler creates a new handler using the database pointer.
-func NewHandler(db *sql.DB, timeout time.Duration, secret []byte) *Handler {
-	sh, err := session.NewHandlerWithDB(db, "csrfs", CookieName, timeout, timeout, secret)
+func NewHandler(ctx context.Context, db *pgxpool.Pool, timeout time.Duration, secret []byte) *Handler {
+	sh, err := session.NewHandlerWithDB(ctx, db, "csrfs", CookieName, timeout, timeout, secret)
 	if err != nil {
 		log.Println("There was a problem creating the CSRF handler")
 		log.Println(err)
@@ -39,16 +40,12 @@ func NewHandler(db *sql.DB, timeout time.Duration, secret []byte) *Handler {
 // GenerateNewToken generates a new token for protecting against CSRF. The token is attached to the
 // response writer as a cookie.
 func (c *Handler) GenerateNewToken(w http.ResponseWriter, r *http.Request) error {
-	tx := session.TxFromContext(r.Context())
-	if tx == nil {
-		panic(fmt.Errorf("Invalid transaction"))
-	}
-	ses := c.CreateSession(tx, "csrf", false)
+	ses := c.CreateSession(r.Context(), "csrf", false)
 	if ses == nil {
 		log.Println("Error creating a new CSRF token")
 		return fmt.Errorf("Error creating CSRF token")
 	}
-	return c.AttachCookie(tx, w, ses)
+	return c.AttachCookie(r.Context(), w, ses)
 }
 
 // ValidToken verifies that a CSRF token is valid and then destroys it.
@@ -59,7 +56,6 @@ func (c *Handler) ValidToken(r *http.Request) error {
 		log.Println(err)
 		return err
 	}
-	tx := session.TxFromContext(r.Context())
-	c.DestroySession(tx, ses)
+	c.DestroySession(r.Context(), ses)
 	return nil
 }

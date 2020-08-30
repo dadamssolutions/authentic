@@ -1,7 +1,7 @@
 package authentic
 
 import (
-	"database/sql"
+	"context"
 	"errors"
 	"fmt"
 	"log"
@@ -9,6 +9,7 @@ import (
 
 	"github.com/dadamssolutions/adaptd"
 	"github.com/dadamssolutions/authentic/handlers/session"
+	"github.com/jackc/pgx/v4/pgxpool"
 )
 
 // RedirectIfErrorOnContext checks for an error on the Request's context.
@@ -69,10 +70,10 @@ func PostAndOtherOnError(postHandler http.Handler, redirectOnSuccess, redirectOn
 // If the transaction that is put on the context should be rolledback, then panic should be called.
 // PutTxOnContext will recover from the panic and report a 500 error.
 // If starting the transaction fails, then panic is called.
-func PutTxOnContext(db *sql.DB) adaptd.Adapter {
+func PutTxOnContext(ctx context.Context, db *pgxpool.Pool) adaptd.Adapter {
 	return func(h http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			tx, err := db.Begin()
+			tx, err := db.Begin(ctx)
 			if err != nil || tx == nil {
 				panic(err)
 			}
@@ -88,7 +89,7 @@ func PutTxOnContext(db *sql.DB) adaptd.Adapter {
 					}
 					w.WriteHeader(http.StatusInternalServerError)
 					log.Printf("Transaction is being rolled back: %s", err.Error())
-					if err := tx.Rollback(); err != nil {
+					if err := tx.Rollback(ctx); err != nil {
 						panic(err)
 					}
 				}
@@ -96,7 +97,7 @@ func PutTxOnContext(db *sql.DB) adaptd.Adapter {
 
 			h.ServeHTTP(w, r.WithContext(session.NewTxContext(r.Context(), tx)))
 
-			if err = tx.Commit(); err != nil {
+			if err = tx.Commit(ctx); err != nil {
 				panic(err)
 			}
 		})

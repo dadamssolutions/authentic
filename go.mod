@@ -3,8 +3,9 @@ module github.com/dadamssolutions/authentic
 go 1.13
 
 require (
-	github.com/DATA-DOG/go-sqlmock v1.4.1
 	github.com/dadamssolutions/adaptd v1.0.5
-	github.com/lib/pq v1.3.0
-	golang.org/x/crypto v0.0.0-20200302210943-78000ba7a073
+	github.com/jackc/pgconn v1.6.4
+	github.com/jackc/pgerrcode v0.0.0-20190803225404-afa3381909a6
+	github.com/jackc/pgx/v4 v4.8.1
+	golang.org/x/crypto v0.0.0-20200622213623-75b288015ac9
 )
