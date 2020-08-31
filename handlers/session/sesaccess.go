@@ -27,10 +27,10 @@ const (
 	timestampFormat    = "2006-01-02 15:04:05.000 -0700"
 	tableCreation      = "CREATE TABLE IF NOT EXISTS %s (selector char(16), session_hash varchar NOT NULL, user_id varchar(50) NOT NULL DEFAULT '', values text, created timestamp WITH TIME ZONE NOT NULL, expiration timestamp WITH TIME ZONE NOT NULL, persistent boolean NOT NULL, PRIMARY KEY (selector));"
 	dropTable          = "DROP TABLE %s;"
-	insertSession      = "INSERT INTO %s (selector, session_hash, user_id, values, created, expiration, persistent) VALUES('%s', '%s', '%s', '%s', '%s', '%s', '%s');"
-	deleteSession      = "DELETE FROM %s WHERE selector = '%s';"
-	getSessionInfo     = "SELECT selector, session_hash, user_id, values, expiration, persistent FROM %s WHERE selector = '%s';"
-	updateSession      = "UPDATE %s SET (user_id, expiration, values) = ('%s', '%s', '%s') WHERE selector = '%s';"
+	insertSession      = "INSERT INTO %s (selector, session_hash, user_id, values, created, expiration, persistent) VALUES($1,$2,$3,$4,$5,$6,$7);"
+	deleteSession      = "DELETE FROM %s WHERE selector = $1;"
+	getSessionInfo     = "SELECT selector, session_hash, user_id, values, expiration, persistent FROM %s WHERE selector = $1;"
+	updateSession      = "UPDATE %s SET (user_id, expiration, values) = ($1,$2,$3) WHERE selector = $4;"
 	cleanUpOldSessions = "DELETE FROM %v WHERE (NOT persistent AND created < NOW() - INTERVAL '%v SECONDS') OR (persistent AND expiration < NOW() - INTERVAL '%v SECONDS') RETURNING selector;"
 )
 
@@ -188,8 +188,8 @@ func (s sesDataAccess) createSession(ctx context.Context, tx pgx.Tx, username st
 	for true {
 		selectorID, sessionID = s.generateSelectorID(), s.generateSessionID()
 		ses = sessions.NewSession(selectorID, sessionID, username, s.encrypt(username, selectorID), s.cookieName, maxLifetime)
-		queryString := fmt.Sprintf(insertSession,
-			pgx.Identifier{s.tableName}.Sanitize(),
+		queryString := fmt.Sprintf(insertSession, pgx.Identifier{s.tableName}.Sanitize())
+		_, err = tx.Exec(ctx, queryString,
 			ses.SelectorID(),
 			s.hashString(ses.HashPayload()),
 			ses.Username(),
@@ -197,7 +197,6 @@ func (s sesDataAccess) createSession(ctx context.Context, tx pgx.Tx, username st
 			time.Now().Format(timestampFormat),
 			ses.ExpireTime().Format(timestampFormat),
 			strconv.FormatBool(persistent))
-		_, err = tx.Exec(ctx, queryString)
 		if err != nil {
 			if e, ok := err.(*pgconn.PgError); ok {
 				// This error code means that the uniqueness of ids has been violated
@@ -223,8 +222,8 @@ func (s sesDataAccess) getSessionInfo(ctx context.Context, tx pgx.Tx, selectorID
 	var persistent bool
 	var ses *sessions.Session
 
-	queryString := fmt.Sprintf(getSessionInfo, pgx.Identifier{s.tableName}.Sanitize(), selectorID)
-	err := tx.QueryRow(ctx, queryString).Scan(&selectorID, &dbHash, &username, &values, &expires, &persistent)
+	queryString := fmt.Sprintf(getSessionInfo, pgx.Identifier{s.tableName}.Sanitize())
+	err := tx.QueryRow(ctx, queryString, selectorID).Scan(&selectorID, &dbHash, &username, &values, &expires, &persistent)
 	if err != nil {
 		return nil, err
 	}
@@ -246,8 +245,8 @@ func (s sesDataAccess) getSessionInfo(ctx context.Context, tx pgx.Tx, selectorID
 }
 
 func (s sesDataAccess) destroySession(ctx context.Context, tx pgx.Tx, ses *sessions.Session) {
-	queryString := fmt.Sprintf(deleteSession, pgx.Identifier{s.tableName}.Sanitize(), ses.SelectorID())
-	_, err := tx.Exec(ctx, queryString)
+	queryString := fmt.Sprintf(deleteSession, pgx.Identifier{s.tableName}.Sanitize())
+	_, err := tx.Exec(ctx, queryString, ses.SelectorID())
 	if err != nil {
 		log.Printf("Could not delete %v: %v", s.tableName, err)
 	}
@@ -256,8 +255,8 @@ func (s sesDataAccess) destroySession(ctx context.Context, tx pgx.Tx, ses *sessi
 
 // updateSession indicates that the session is active and the expiration needs to be updated.
 func (s sesDataAccess) updateSession(ctx context.Context, tx pgx.Tx, ses *sessions.Session, maxLifetime time.Duration) {
-	queryString := fmt.Sprintf(updateSession, pgx.Identifier{s.tableName}.Sanitize(), ses.Username(), ses.ExpireTime().Add(maxLifetime).Format(timestampFormat), ses.ValuesAsText(), ses.SelectorID())
-	_, err := tx.Exec(ctx, queryString)
+	queryString := fmt.Sprintf(updateSession, pgx.Identifier{s.tableName}.Sanitize())
+	_, err := tx.Exec(ctx, queryString, ses.Username(), ses.ExpireTime().Add(maxLifetime).Format(timestampFormat), ses.ValuesAsText(), ses.SelectorID())
 	if err != nil {
 		panic(err)
 	}

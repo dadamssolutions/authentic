@@ -14,13 +14,13 @@ import (
 
 const (
 	createUsersTableSQL     = "CREATE TABLE IF NOT EXISTS %v (username varchar, fname varchar DEFAULT '', lname varchar DEFAULT '', email varchar NOT NULL UNIQUE, role int NOT NULL DEFAULT 0, validated boolean DEFAULT false, pass_hash char(80) DEFAULT '', last_access timestamp DEFAULT 'epoch', PRIMARY KEY (username));"
-	addUserToDatabaseSQL    = "INSERT INTO %s (username, fname, lname, email, validated, pass_hash) VALUES ('%s','%s','%s','%s',false,'%s');"
-	getUserInfoSQL          = "SELECT username, fname, lname, email, role, validated FROM %s WHERE %s = '%s';"
-	getUserPasswordHashSQL  = "SELECT pass_hash FROM %v WHERE username = '%s';"
-	validateUserSQL         = "UPDATE %v SET validated = true WHERE username = '%s';"
-	updateUserPasswordSQL   = "UPDATE %v SET (pass_hash, validated) = ('%s', true) WHERE username = '%s';" // #nosec
-	updateUserLastAccessSQL = "UPDATE %v SET last_access = '%s' WHERE username = '%s';"
-	getUserLastAccessSQL    = "SELECT last_access FROM %s WHERE username = '%s';"
+	addUserToDatabaseSQL    = "INSERT INTO %s (username, fname, lname, email, validated, pass_hash) VALUES ($1,$2,$3,$4,false,$5);"
+	getUserInfoSQL          = "SELECT username, fname, lname, email, role, validated FROM %s WHERE %s = $1;"
+	getUserPasswordHashSQL  = "SELECT pass_hash FROM %v WHERE username = $1;"
+	validateUserSQL         = "UPDATE %v SET validated = true WHERE username = $1;"
+	updateUserPasswordSQL   = "UPDATE %v SET (pass_hash, validated) = ($1, true) WHERE username = $2;" // #nosec
+	updateUserLastAccessSQL = "UPDATE %v SET last_access = $1 WHERE username = $2;"
+	getUserLastAccessSQL    = "SELECT last_access FROM %s WHERE username = $1;"
 	dateLayout              = "2006-01-02 15:04:05"
 )
 
@@ -53,7 +53,7 @@ type conn struct {
 func (c conn) GetUserFromDB(ctx context.Context, col, search string) *User {
 	tx := session.TxFromContext(ctx)
 	user := User{}
-	err := tx.QueryRow(ctx, fmt.Sprintf(getUserInfoSQL, pgx.Identifier{c.tableName}.Sanitize(), pgx.Identifier{col}.Sanitize(), search)).Scan(&user.Username, &user.FirstName, &user.LastName, &user.Email, &user.Role, &user.validated)
+	err := tx.QueryRow(ctx, fmt.Sprintf(getUserInfoSQL, pgx.Identifier{c.tableName}.Sanitize(), pgx.Identifier{col}.Sanitize()), search).Scan(&user.Username, &user.FirstName, &user.LastName, &user.Email, &user.Role, &user.validated)
 	if err != nil {
 		log.Println(err)
 		log.Println("Cannot get user from database")
@@ -77,7 +77,7 @@ func (c conn) UsernameOrEmailExists(ctx context.Context, user *User) (bool, bool
 // AddUserToDatabase add the User to the database
 func (c conn) AddUserToDatabase(ctx context.Context, user *User) {
 	tx := session.TxFromContext(ctx)
-	_, err := tx.Exec(ctx, fmt.Sprintf(addUserToDatabaseSQL, pgx.Identifier{c.tableName}.Sanitize(), user.Username, user.FirstName, user.LastName, user.Email, string(user.passHash)))
+	_, err := tx.Exec(ctx, fmt.Sprintf(addUserToDatabaseSQL, pgx.Identifier{c.tableName}.Sanitize()), user.Username, user.FirstName, user.LastName, user.Email, string(user.passHash))
 	if err != nil {
 		panic(fmt.Sprintf("Cannot add user %v to database: %v", user.Username, err))
 	}
@@ -86,7 +86,7 @@ func (c conn) AddUserToDatabase(ctx context.Context, user *User) {
 // ValidateUser changes the User's status in the database to `true`
 func (c conn) ValidateUser(ctx context.Context, user *User) {
 	tx := session.TxFromContext(ctx)
-	_, err := tx.Exec(ctx, fmt.Sprintf(validateUserSQL, pgx.Identifier{c.tableName}.Sanitize(), user.Username))
+	_, err := tx.Exec(ctx, fmt.Sprintf(validateUserSQL, pgx.Identifier{c.tableName}.Sanitize()), user.Username)
 	if err != nil {
 		panic(fmt.Sprintf("Could not validate user %v: %v", user.Username, err))
 	}
@@ -95,7 +95,7 @@ func (c conn) ValidateUser(ctx context.Context, user *User) {
 // UpdateUserPassword updates the User's password in the database
 func (c conn) UpdateUserPassword(ctx context.Context, username, passHash string) {
 	tx := session.TxFromContext(ctx)
-	_, err := tx.Exec(ctx, fmt.Sprintf(updateUserPasswordSQL, pgx.Identifier{c.tableName}.Sanitize(), passHash, username))
+	_, err := tx.Exec(ctx, fmt.Sprintf(updateUserPasswordSQL, pgx.Identifier{c.tableName}.Sanitize()), passHash, username)
 	if err != nil {
 		panic(fmt.Sprintf("Could not update user %v password: %v", username, err))
 	}
@@ -105,7 +105,7 @@ func (c conn) UpdateUserPassword(ctx context.Context, username, passHash string)
 func (c conn) GetUserLastAccess(ctx context.Context, username string) time.Time {
 	var t time.Time
 	tx := session.TxFromContext(ctx)
-	err := tx.QueryRow(ctx, fmt.Sprintf(getUserLastAccessSQL, pgx.Identifier{c.tableName}.Sanitize(), username)).Scan(&t)
+	err := tx.QueryRow(ctx, fmt.Sprintf(getUserLastAccessSQL, pgx.Identifier{c.tableName}.Sanitize()), username).Scan(&t)
 	if err != nil {
 		panic(fmt.Sprintf("Could not get last access time for user %v: %v", username, err))
 	}
@@ -115,7 +115,7 @@ func (c conn) GetUserLastAccess(ctx context.Context, username string) time.Time 
 // UpdateUserLastAccess updates the last time the User is known to access the site.
 func (c conn) UpdateUserLastAccess(ctx context.Context, username string) {
 	tx := session.TxFromContext(ctx)
-	_, err := tx.Exec(ctx, fmt.Sprintf(updateUserLastAccessSQL, pgx.Identifier{c.tableName}.Sanitize(), time.Now().Format(dateLayout), username))
+	_, err := tx.Exec(ctx, fmt.Sprintf(updateUserLastAccessSQL, pgx.Identifier{c.tableName}.Sanitize()), time.Now().Format(dateLayout), username)
 	if err != nil {
 		panic(fmt.Sprintf("Could not update last access time for user %v: %v", username, err))
 	}
@@ -124,7 +124,7 @@ func (c conn) UpdateUserLastAccess(ctx context.Context, username string) {
 // getUserPasswordHash gets the User's hashed password from the database
 func (c conn) getUserPasswordHash(ctx context.Context, tx pgx.Tx, username string) []byte {
 	var pwHash string
-	err := tx.QueryRow(ctx, fmt.Sprintf(getUserPasswordHashSQL, pgx.Identifier{c.tableName}.Sanitize(), username)).Scan(&pwHash)
+	err := tx.QueryRow(ctx, fmt.Sprintf(getUserPasswordHashSQL, pgx.Identifier{c.tableName}.Sanitize()), username).Scan(&pwHash)
 	if err != nil {
 		panic(fmt.Sprintf("Cannot get password for user %v: %v", username, err))
 	}
